@@ -1,0 +1,6 @@
+.git
+.gitignore
+.gocache
+tmp
+*.log
+README.md

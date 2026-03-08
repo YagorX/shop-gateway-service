@@ -1,0 +1,17 @@
+service_name: gateway-service
+env: docker
+version: dev
+
+log_level: info
+shutdown_timeout: 10s
+
+http:
+  port: 8080
+  timeout: 5s
+
+catalog_grpc:
+  addr: catalog-service:9091
+  timeout: 3s
+
+otlp:
+  endpoint: jaeger:4317
