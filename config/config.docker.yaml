@@ -6,7 +6,7 @@ log_level: info
 shutdown_timeout: 10s
 
 http:
-  port: 8080
+  port: 8083
   timeout: 5s
 
 catalog_grpc:

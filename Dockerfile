@@ -17,7 +17,7 @@ COPY config/config.docker.yaml /app/config/config.docker.yaml
 
 USER app
 
-EXPOSE 8080
+EXPOSE 8083
 
 ENV CONFIG_PATH=/app/config/config.docker.yaml
 

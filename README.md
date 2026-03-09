@@ -1,10 +1,10 @@
-# shop-gateway
+﻿# shop-gateway
 
-`shop-gateway` - HTTP API gateway для доступа к `shop-catalog-service` по gRPC.
+`shop-gateway` — HTTP API gateway для доступа к `shop-catalog-service` по gRPC.
 
-Сервис принимает HTTP запросы, выполняет бизнес-валидацию в service-слое и проксирует чтение каталога в `catalog-service`.
+Сервис принимает HTTP-запросы, выполняет бизнес-валидацию в service-слое и проксирует чтение каталога в `catalog-service`.
 
-## Что уже реализовано
+## Возможности
 
 1. HTTP endpoints:
    - `GET /products`
@@ -13,40 +13,37 @@
    - `GET /ready`
    - `GET /metrics`
    - `GET/POST /admin/log-level`
-2. Слои:
+2. Слоистая архитектура:
    - `transport/http` (handlers + router)
-   - `service/gateway` (business logic)
-   - `adapters/catalog_grpc` (grpc adapter)
-   - `client/grpc/catalog` (transport client)
+   - `service/gateway` (бизнес-логика)
+   - `adapters/catalog_grpc` (адаптер порта)
+   - `client/grpc/catalog` (gRPC транспорт)
 3. Observability:
-   - JSON logs (`slog`)
-   - Prometheus metrics (`gateway_*`)
-   - OpenTelemetry traces (HTTP + gRPC client)
-4. Graceful shutdown и readiness check внешнего `catalog-service`.
+   - JSON-логи (`slog`)
+   - Prometheus-метрики (`gateway_*`)
+   - OpenTelemetry-трейсинг (HTTP + gRPC client)
 
-## Архитектура
+## Архитектура запроса
 
-Поток запроса:
-
-1. HTTP request приходит в `handlers/products.go`.
+1. HTTP-запрос приходит в `handlers/products.go`.
 2. Handler вызывает `GatewayService`.
 3. `GatewayService` валидирует вход и вызывает интерфейс `ProductRepository`.
 4. `CatalogAdapter` реализует `ProductRepository` через `client/grpc/catalog`.
 5. gRPC вызов уходит в `shop-catalog-service`.
 
-Это разделение позволяет тестировать бизнес-логику отдельно от транспорта.
+## Конфигурация
 
-## Конфиг
+Файлы:
 
-Локальный конфиг: [config.local.yaml](/c:/Users/User/Downloads/observability/all_project/shop-gateway/config/config.local.yaml)  
-Docker-конфиг: [config.docker.yaml](/c:/Users/User/Downloads/observability/all_project/shop-gateway/config/config.docker.yaml)
+1. `config/config.local.yaml`
+2. `config/config.docker.yaml`
 
-Ключевые параметры:
+Ключевые поля:
 
-1. `http.port` - HTTP порт gateway.
-2. `catalog_grpc.addr` - адрес `catalog-service` (`host:port`).
-3. `catalog_grpc.timeout` - таймаут исходящих gRPC вызовов.
-4. `otlp.endpoint` - OTLP endpoint (Jaeger/collector).
+1. `http.port` — порт HTTP сервера (`8083`)
+2. `catalog_grpc.addr` — адрес `catalog-service` (`host:port`)
+3. `catalog_grpc.timeout` — таймаут исходящих gRPC-вызовов
+4. `otlp.endpoint` — OTLP endpoint для трейсов
 
 ## Локальный запуск
 
@@ -59,32 +56,28 @@ go run ./cmd/gateway --config config/config.local.yaml
 Проверка:
 
 ```bash
-curl http://localhost:8080/health
-curl http://localhost:8080/ready
-curl http://localhost:8080/metrics
-curl "http://localhost:8080/products?limit=5&offset=0"
-curl http://localhost:8080/products/prod-001
+curl http://127.0.0.1:8083/health
+curl http://127.0.0.1:8083/ready
+curl http://127.0.0.1:8083/metrics
+curl "http://127.0.0.1:8083/products?limit=5&offset=0"
+curl http://127.0.0.1:8083/products/prod-001
 ```
 
 ## Docker запуск
 
 ### Только gateway контейнер
 
-Из директории `shop-gateway`:
-
 ```bash
 docker build -t shop-gateway:local .
-docker run --rm -p 8080:8080 --name gateway-service shop-gateway:local
+docker run --rm -p 8083:8083 --name gateway-service shop-gateway:local
 ```
 
-Важно: для такого запуска `catalog-service` и `jaeger` должны быть доступны по адресам из `config/config.docker.yaml`.
-
-### Через общий compose (рекомендуется)
+### Через общий compose
 
 Из `shop-platform/deploy`:
 
 ```bash
-docker compose up -d --build jaeger catalog-service gateway-service
+docker compose up -d --build jaeger postgres redis catalog-service gateway-service
 ```
 
 ## API
@@ -96,7 +89,7 @@ Query:
 1. `limit` (optional)
 2. `offset` (optional)
 
-Ответ `200`:
+Успех:
 
 ```json
 {
@@ -107,7 +100,7 @@ Query:
 
 ### `GET /products/{id}`
 
-Ответ `200`:
+Успех:
 
 ```json
 {
@@ -124,7 +117,7 @@ Query:
 
 ### Формат ошибок
 
-Все ошибки возвращаются в JSON:
+Все ошибки отдаются в JSON:
 
 ```json
 {
@@ -146,29 +139,33 @@ Query:
 
 ## Метрики
 
-Сервисные метрики:
+Service:
 
 1. `gateway_service_requests_total{method,status}`
 2. `gateway_service_request_duration_seconds{method}`
 
-HTTP метрики:
+HTTP:
 
 1. `gateway_http_requests_total{method,path,status}`
 2. `gateway_http_request_duration_seconds{method,path}`
 
-gRPC client метрики:
+gRPC client:
 
 1. `gateway_grpc_requests_total{method,code}`
 2. `gateway_grpc_request_duration_seconds{method}`
 
-Все доступны через `GET /metrics`.
-
 ## Tracing
 
-1. Входящий HTTP запрос инструментирован через `otelhttp`.
-2. Service-слой создаёт дочерние spans (`ListProducts`, `GetProduct`).
+1. Входящий HTTP-трафик инструментирован через `otelhttp`.
+2. Service-слой создает child spans (`service.gateway.ListProducts`, `service.gateway.GetProduct`).
 3. Исходящий gRPC клиент инструментирован через `otelgrpc.NewClientHandler`.
-4. Контекст передаётся в `catalog-service`, поэтому trace получается сквозным.
+4. Контекст прокидывается в `catalog-service`, trace сквозной.
+
+## Readiness
+
+`/ready` проверяет доступность `catalog-service` через `grpc.health.v1.Health/Check`.
+
+Для стабильного readiness-check в gateway используется блокирующее подключение (`DialContext + WithBlock`) и ограниченный timeout.
 
 ## Структура проекта
 
@@ -190,10 +187,10 @@ shop-gateway/
   Dockerfile
 ```
 
-## Проверка готовности перед релизом
+## Чеклист готовности
 
-1. `go test ./...` проходит.
-2. `GET /health` возвращает `200`.
-3. `GET /ready` возвращает `200` при доступном `catalog-service`.
-4. `GET /metrics` отдаёт `gateway_*` метрики.
-5. В Jaeger виден сквозной trace `gateway -> catalog`.
+1. `go test ./...` проходит
+2. `GET /health` возвращает `200`
+3. `GET /ready` возвращает `200` при доступном `catalog-service`
+4. `GET /metrics` отдает `gateway_*`
+5. В Jaeger виден trace `gateway -> catalog`
