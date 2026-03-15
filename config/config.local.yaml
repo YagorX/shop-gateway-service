@@ -15,3 +15,7 @@ catalog_grpc:
 
 otlp:
   endpoint: localhost:4317
+
+auth_grpc:
+  addr: localhost:44044
+  timeout: 3s

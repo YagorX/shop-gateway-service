@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"time"
 
-	adapter "github.com/YagorX/shop-gateway/internal/adapters/catalog_grpc"
+	auth_adapter "github.com/YagorX/shop-gateway/internal/adapters/auth_grpc"
+	catalog_adapter "github.com/YagorX/shop-gateway/internal/adapters/catalog_grpc"
 	httpapp "github.com/YagorX/shop-gateway/internal/app/httpapp"
+	auth_client "github.com/YagorX/shop-gateway/internal/client/grpc/auth"
 	catalog_client "github.com/YagorX/shop-gateway/internal/client/grpc/catalog"
 	"github.com/YagorX/shop-gateway/internal/config"
 	"github.com/YagorX/shop-gateway/internal/observability"
@@ -20,9 +22,10 @@ import (
 )
 
 type App struct {
-	logger     *slog.Logger
-	httpApp    *httpapp.App
-	grpcClient *catalog_client.Client
+	logger            *slog.Logger
+	httpApp           *httpapp.App
+	grpcCatalogClient *catalog_client.Client
+	grpcAuthClient    *auth_client.Client
 
 	shutdownTracing func(context.Context) error
 
@@ -50,22 +53,35 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		cfg.OTLP.Endpoint,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("init tracing: %w", err)
+		runtimeLogger.Logger.Warn("tracing is disabled", slog.String("error", err.Error()))
+		shutdownTracing = nil
 	}
 
-	grpc_client, err := catalog_client.NewClient(runtimeLogger.Logger, cfg.CatalogGRPC.Addr, cfg.CatalogGRPC.Timeout)
+	grpc_catalog_client, err := catalog_client.NewClient(runtimeLogger.Logger, cfg.CatalogGRPC.Addr, cfg.CatalogGRPC.Timeout)
 	if err != nil {
 		_ = shutdownTracing(context.Background())
 		return nil, fmt.Errorf("create grpc client: %w", err)
 	}
 
-	catalog_adapter, err := adapter.NewRepository(grpc_client)
+	grpc_auth_client, err := auth_client.NewClient(runtimeLogger.Logger, cfg.AuthGRPC.Addr, cfg.AuthGRPC.Timeout)
+	if err != nil {
+		_ = shutdownTracing(context.Background())
+		return nil, fmt.Errorf("create grpc client: %w", err)
+	}
+
+	catalog_adapter, err := catalog_adapter.NewRepository(grpc_catalog_client)
 	if err != nil {
 		_ = shutdownTracing(context.Background())
 		return nil, fmt.Errorf("create catalog_adapter: %w", err)
 	}
 
-	gatewaySrv, err := gateway_srv.NewGatewayService(runtimeLogger.Logger, catalog_adapter)
+	auth_adapter, err := auth_adapter.NewRepository(grpc_auth_client)
+	if err != nil {
+		_ = shutdownTracing(context.Background())
+		return nil, fmt.Errorf("create auth_adapter: %w", err)
+	}
+
+	gatewaySrv, err := gateway_srv.NewGatewayService(runtimeLogger.Logger, catalog_adapter, auth_adapter)
 	if err != nil {
 		_ = shutdownTracing(context.Background())
 		return nil, fmt.Errorf("create gateway_service: %w", err)
@@ -73,11 +89,20 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 
 	httpRouter := httpv1.NewRouter(httpv1.RouterDeps{
 		LogLevelController: runtimeLogger,
-		ReadinessChecker: grpchandlers.CatalogHealthChecker{
-			Addr:    cfg.CatalogGRPC.Addr,
-			Timeout: cfg.CatalogGRPC.Timeout,
+		ReadinessChecker: grpchandlers.MultiReadinessChecker{
+			Checkers: []grpchandlers.ReadinessChecker{
+				grpchandlers.CatalogHealthChecker{
+					Addr:    cfg.CatalogGRPC.Addr,
+					Timeout: cfg.CatalogGRPC.Timeout,
+				},
+				grpchandlers.AuthHealthChecker{
+					Addr:    cfg.AuthGRPC.Addr,
+					Timeout: cfg.AuthGRPC.Timeout,
+				},
+			},
 		},
 		ProductService: gatewaySrv,
+		AuthService:    gatewaySrv,
 	})
 
 	otelHandler := otelhttp.NewHandler(httpRouter, "gateway.http")
@@ -98,11 +123,12 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	}
 
 	return &App{
-		logger:          runtimeLogger.Logger,
-		httpApp:         httpRuntime,
-		shutdownTracing: shutdownTracing,
-		grpcClient:      grpc_client,
-		errCh:           make(chan error, 1),
+		logger:            runtimeLogger.Logger,
+		httpApp:           httpRuntime,
+		shutdownTracing:   shutdownTracing,
+		grpcCatalogClient: grpc_catalog_client,
+		grpcAuthClient:    grpc_auth_client,
+		errCh:             make(chan error, 1),
 	}, nil
 
 }
@@ -150,8 +176,14 @@ func (a *App) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	if a.grpcClient != nil {
-		if err := a.grpcClient.Close(); err != nil {
+	if a.grpcCatalogClient != nil {
+		if err := a.grpcCatalogClient.Close(); err != nil {
+			shutdownErr = errors.Join(shutdownErr, fmt.Errorf("stop grpc client: %w", err))
+		}
+	}
+
+	if a.grpcAuthClient != nil {
+		if err := a.grpcAuthClient.Close(); err != nil {
 			shutdownErr = errors.Join(shutdownErr, fmt.Errorf("stop grpc client: %w", err))
 		}
 	}

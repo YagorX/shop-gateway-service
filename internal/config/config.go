@@ -15,12 +15,18 @@ type Config struct {
 	LogLevel        string        `yaml:"log_level" env-default:"info"`
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" env-default:"10s"`
 	CatalogGRPC     CatalogGRPC   `yaml:"catalog_grpc"`
+	AuthGRPC        AuthGRPC      `yaml:"auth_grpc"`
 	HTTP            HTTPConfig    `yaml:"http"`
 	OTLP            OTLPConfig    `yaml:"otlp"`
 }
 
 type CatalogGRPC struct {
 	Addr    string        `yaml:"addr" env-default:"localhost:9091"`
+	Timeout time.Duration `yaml:"timeout" env-default:"5s"`
+}
+
+type AuthGRPC struct {
+	Addr    string        `yaml:"addr" env-default:"localhost:44044"`
 	Timeout time.Duration `yaml:"timeout" env-default:"5s"`
 }
 
@@ -91,6 +97,12 @@ func (c *Config) Validate() error {
 	}
 	if c.OTLP.Endpoint == "" {
 		return fmt.Errorf("otlp.endpoint is required")
+	}
+	if c.AuthGRPC.Addr == "" {
+		return fmt.Errorf("authgrpc.addr is required")
+	}
+	if c.AuthGRPC.Timeout <= 0 {
+		return fmt.Errorf("authgrpc.timeout must be > 0")
 	}
 
 	return nil

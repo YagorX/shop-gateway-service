@@ -15,3 +15,7 @@ catalog_grpc:
 
 otlp:
   endpoint: jaeger:4317
+
+auth_grpc:
+  addr: auth-service:44044
+  timeout: 3s

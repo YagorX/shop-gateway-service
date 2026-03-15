@@ -27,18 +27,22 @@ var (
 )
 
 type GatewayService struct {
-	logger     *slog.Logger
-	repository ProductRepository
+	logger             *slog.Logger
+	catalog_repository ProductRepository
+	auth_repository    AuthRepository
 }
 
-func NewGatewayService(logger *slog.Logger, repository ProductRepository) (*GatewayService, error) {
+func NewGatewayService(logger *slog.Logger, catalog_repository ProductRepository, auth_repository AuthRepository) (*GatewayService, error) {
 	if logger == nil {
 		return nil, errors.New("logger is empty")
 	}
-	if repository == nil {
-		return nil, errors.New("repository is empty")
+	if catalog_repository == nil {
+		return nil, errors.New("recatalog_repository is empty")
 	}
-	return &GatewayService{logger: logger, repository: repository}, nil
+	if auth_repository == nil {
+		return nil, errors.New("auth_repository is empty")
+	}
+	return &GatewayService{logger: logger, catalog_repository: catalog_repository, auth_repository: auth_repository}, nil
 }
 
 func (service *GatewayService) ListProducts(ctx context.Context, limit, offset int) ([]domain.Product, error) {
@@ -90,7 +94,7 @@ func (service *GatewayService) ListProducts(ctx context.Context, limit, offset i
 		slog.Int("effective_offset", offset),
 	)
 
-	products, err := service.repository.List(ctx, limit, offset)
+	products, err := service.catalog_repository.List(ctx, limit, offset)
 	if err != nil {
 		service.logger.Error("repository list failed",
 			slog.String("op", op),
@@ -176,7 +180,7 @@ func (service *GatewayService) GetProduct(ctx context.Context, id string) (domai
 		return domain.Product{}, errProductIDRequired
 	}
 
-	product, err := service.repository.GetByID(ctx, id)
+	product, err := service.catalog_repository.GetByID(ctx, id)
 	if err != nil {
 		level := slog.LevelError
 		msg := "repository get product failed"
@@ -227,8 +231,358 @@ func (service *GatewayService) GetProduct(ctx context.Context, id string) (domai
 	return product, nil
 }
 
+func (service *GatewayService) Register(ctx context.Context, username, email, password string) (string, error) {
+	const op = "service.gateway.Register"
+	startedAt := time.Now()
+	metrics := observability.MustMetrics()
+	ctx, span := otel.Tracer("shop-gateway/internal/service/gateway").Start(ctx, op)
+	defer span.End()
+
+	defer func() {
+		metrics.GatewayServiceRequestDuration.WithLabelValues("Register").Observe(time.Since(startedAt).Seconds())
+	}()
+
+	if err := service.ensureInitialized(); err != nil {
+		service.logger.Error("gateway service is not initialized", slog.String("op", op))
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("Register", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", err
+	}
+
+	span.SetAttributes(
+		attribute.String("auth.username", username),
+		attribute.String("auth.email", email),
+	)
+
+	service.logger.Info("register started",
+		slog.String("op", op),
+		slog.String("username", username),
+		slog.String("email", email),
+	)
+
+	userUUID, err := service.auth_repository.Register(ctx, username, email, password)
+	if err != nil {
+		service.logger.Error("register failed",
+			slog.String("op", op),
+			slog.String("username", username),
+			slog.String("email", email),
+			slog.String("error", err.Error()),
+			slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+		)
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("Register", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", err
+	}
+
+	service.logger.Info("register completed",
+		slog.String("op", op),
+		slog.String("username", username),
+		slog.String("email", email),
+		slog.String("user_uuid", userUUID),
+		slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+	)
+	metrics.GatewayServiceRequestsTotal.WithLabelValues("Register", "success").Inc()
+	span.SetAttributes(attribute.String("auth.user_uuid", userUUID))
+	span.SetStatus(codes.Ok, "success")
+
+	return userUUID, nil
+}
+
+func (service *GatewayService) Login(
+	ctx context.Context,
+	emailOrName, password string,
+	appID int64,
+	deviceID string,
+) (string, string, error) {
+	const op = "service.gateway.Login"
+	startedAt := time.Now()
+	metrics := observability.MustMetrics()
+	ctx, span := otel.Tracer("shop-gateway/internal/service/gateway").Start(ctx, op)
+	defer span.End()
+
+	defer func() {
+		metrics.GatewayServiceRequestDuration.WithLabelValues("Login").Observe(time.Since(startedAt).Seconds())
+	}()
+
+	if err := service.ensureInitialized(); err != nil {
+		service.logger.Error("gateway service is not initialized", slog.String("op", op))
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("Login", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", "", err
+	}
+
+	span.SetAttributes(
+		attribute.String("auth.email_or_name", emailOrName),
+		attribute.Int64("auth.app_id", appID),
+		attribute.String("auth.device_id", deviceID),
+	)
+
+	service.logger.Info("login started",
+		slog.String("op", op),
+		slog.String("email_or_name", emailOrName),
+		slog.Int64("app_id", appID),
+		slog.String("device_id", deviceID),
+	)
+
+	accessToken, refreshToken, err := service.auth_repository.Login(ctx, emailOrName, password, appID, deviceID)
+	if err != nil {
+		service.logger.Error("login failed",
+			slog.String("op", op),
+			slog.String("email_or_name", emailOrName),
+			slog.Int64("app_id", appID),
+			slog.String("device_id", deviceID),
+			slog.String("error", err.Error()),
+			slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+		)
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("Login", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", "", err
+	}
+
+	service.logger.Info("login completed",
+		slog.String("op", op),
+		slog.String("email_or_name", emailOrName),
+		slog.Int64("app_id", appID),
+		slog.String("device_id", deviceID),
+		slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+	)
+	metrics.GatewayServiceRequestsTotal.WithLabelValues("Login", "success").Inc()
+	span.SetStatus(codes.Ok, "success")
+
+	return accessToken, refreshToken, nil
+}
+
+func (service *GatewayService) ValidateToken(ctx context.Context, token string, appID int64) (string, error) {
+	const op = "service.gateway.ValidateToken"
+	startedAt := time.Now()
+	metrics := observability.MustMetrics()
+	ctx, span := otel.Tracer("shop-gateway/internal/service/gateway").Start(ctx, op)
+	defer span.End()
+
+	defer func() {
+		metrics.GatewayServiceRequestDuration.WithLabelValues("ValidateToken").Observe(time.Since(startedAt).Seconds())
+	}()
+
+	if err := service.ensureInitialized(); err != nil {
+		service.logger.Error("gateway service is not initialized", slog.String("op", op))
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("ValidateToken", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", err
+	}
+
+	span.SetAttributes(attribute.Int64("auth.app_id", appID))
+
+	service.logger.Info("validate token started",
+		slog.String("op", op),
+		slog.Int64("app_id", appID),
+	)
+
+	userUUID, err := service.auth_repository.ValidateToken(ctx, token, appID)
+	if err != nil {
+		service.logger.Error("validate token failed",
+			slog.String("op", op),
+			slog.Int64("app_id", appID),
+			slog.String("error", err.Error()),
+			slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+		)
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("ValidateToken", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", err
+	}
+
+	service.logger.Info("validate token completed",
+		slog.String("op", op),
+		slog.String("user_uuid", userUUID),
+		slog.Int64("app_id", appID),
+		slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+	)
+	metrics.GatewayServiceRequestsTotal.WithLabelValues("ValidateToken", "success").Inc()
+	span.SetAttributes(attribute.String("auth.user_uuid", userUUID))
+	span.SetStatus(codes.Ok, "success")
+
+	return userUUID, nil
+}
+
+func (service *GatewayService) Refresh(
+	ctx context.Context,
+	refreshToken string,
+	appID int64,
+	deviceID string,
+) (string, string, error) {
+	const op = "service.gateway.Refresh"
+	startedAt := time.Now()
+	metrics := observability.MustMetrics()
+	ctx, span := otel.Tracer("shop-gateway/internal/service/gateway").Start(ctx, op)
+	defer span.End()
+
+	defer func() {
+		metrics.GatewayServiceRequestDuration.WithLabelValues("Refresh").Observe(time.Since(startedAt).Seconds())
+	}()
+
+	if err := service.ensureInitialized(); err != nil {
+		service.logger.Error("gateway service is not initialized", slog.String("op", op))
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("Refresh", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", "", err
+	}
+
+	span.SetAttributes(
+		attribute.Int64("auth.app_id", appID),
+		attribute.String("auth.device_id", deviceID),
+	)
+
+	service.logger.Info("refresh started",
+		slog.String("op", op),
+		slog.Int64("app_id", appID),
+		slog.String("device_id", deviceID),
+	)
+
+	accessToken, newRefreshToken, err := service.auth_repository.Refresh(ctx, refreshToken, appID, deviceID)
+	if err != nil {
+		service.logger.Error("refresh failed",
+			slog.String("op", op),
+			slog.Int64("app_id", appID),
+			slog.String("device_id", deviceID),
+			slog.String("error", err.Error()),
+			slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+		)
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("Refresh", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", "", err
+	}
+
+	service.logger.Info("refresh completed",
+		slog.String("op", op),
+		slog.Int64("app_id", appID),
+		slog.String("device_id", deviceID),
+		slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+	)
+	metrics.GatewayServiceRequestsTotal.WithLabelValues("Refresh", "success").Inc()
+	span.SetStatus(codes.Ok, "success")
+
+	return accessToken, newRefreshToken, nil
+}
+
+func (service *GatewayService) Logout(ctx context.Context, refreshToken string, appID int64, deviceID string) error {
+	const op = "service.gateway.Logout"
+	startedAt := time.Now()
+	metrics := observability.MustMetrics()
+	ctx, span := otel.Tracer("shop-gateway/internal/service/gateway").Start(ctx, op)
+	defer span.End()
+
+	defer func() {
+		metrics.GatewayServiceRequestDuration.WithLabelValues("Logout").Observe(time.Since(startedAt).Seconds())
+	}()
+
+	if err := service.ensureInitialized(); err != nil {
+		service.logger.Error("gateway service is not initialized", slog.String("op", op))
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("Logout", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+
+	span.SetAttributes(
+		attribute.Int64("auth.app_id", appID),
+		attribute.String("auth.device_id", deviceID),
+	)
+
+	service.logger.Info("logout started",
+		slog.String("op", op),
+		slog.Int64("app_id", appID),
+		slog.String("device_id", deviceID),
+	)
+
+	err := service.auth_repository.Logout(ctx, refreshToken, appID, deviceID)
+	if err != nil {
+		service.logger.Error("logout failed",
+			slog.String("op", op),
+			slog.Int64("app_id", appID),
+			slog.String("device_id", deviceID),
+			slog.String("error", err.Error()),
+			slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+		)
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("Logout", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+
+	service.logger.Info("logout completed",
+		slog.String("op", op),
+		slog.Int64("app_id", appID),
+		slog.String("device_id", deviceID),
+		slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+	)
+	metrics.GatewayServiceRequestsTotal.WithLabelValues("Logout", "success").Inc()
+	span.SetStatus(codes.Ok, "success")
+
+	return nil
+}
+
+func (service *GatewayService) IsAdmin(ctx context.Context, userUUID string) (bool, error) {
+	const op = "service.gateway.IsAdmin"
+	startedAt := time.Now()
+	metrics := observability.MustMetrics()
+	ctx, span := otel.Tracer("shop-gateway/internal/service/gateway").Start(ctx, op)
+	defer span.End()
+
+	defer func() {
+		metrics.GatewayServiceRequestDuration.WithLabelValues("IsAdmin").Observe(time.Since(startedAt).Seconds())
+	}()
+
+	if err := service.ensureInitialized(); err != nil {
+		service.logger.Error("gateway service is not initialized", slog.String("op", op))
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("IsAdmin", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return false, err
+	}
+
+	span.SetAttributes(attribute.String("auth.user_uuid", userUUID))
+
+	service.logger.Info("is admin started",
+		slog.String("op", op),
+		slog.String("user_uuid", userUUID),
+	)
+
+	isAdmin, err := service.auth_repository.IsAdmin(ctx, userUUID)
+	if err != nil {
+		service.logger.Error("is admin failed",
+			slog.String("op", op),
+			slog.String("user_uuid", userUUID),
+			slog.String("error", err.Error()),
+			slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+		)
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("IsAdmin", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return false, err
+	}
+
+	service.logger.Info("is admin completed",
+		slog.String("op", op),
+		slog.String("user_uuid", userUUID),
+		slog.Bool("is_admin", isAdmin),
+		slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+	)
+	metrics.GatewayServiceRequestsTotal.WithLabelValues("IsAdmin", "success").Inc()
+	span.SetAttributes(attribute.Bool("auth.is_admin", isAdmin))
+	span.SetStatus(codes.Ok, "success")
+
+	return isAdmin, nil
+}
+
 func (service *GatewayService) ensureInitialized() error {
-	if service == nil || service.repository == nil || service.logger == nil {
+	if service == nil || service.catalog_repository == nil || service.auth_repository == nil || service.logger == nil {
 		return errServiceNotInitialized
 	}
 	return nil
