@@ -9,6 +9,12 @@ http:
   port: 8083
   timeout: 5s
 
+http_tls:
+  enabled: true
+  cert_file: /app/certs/gateway-server.crt
+  key_file: /app/certs/gateway-server.key
+
+
 catalog_grpc:
   addr: catalog-service:9091
   timeout: 3s

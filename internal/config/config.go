@@ -16,16 +16,23 @@ type Config struct {
 	LogLevel        string        `yaml:"log_level" env-default:"info"`
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" env-default:"10s"`
 
-	HTTP        HTTPConfig `yaml:"http"`
-	CatalogGRPC GRPCConfig `yaml:"catalog_grpc"`
-	AuthGRPC    GRPCConfig `yaml:"auth_grpc"`
-	OTLP        OTLPConfig `yaml:"otlp"`
-	AuthTLS     TLSConfig  `yaml:"auth_tls"`
+	HTTPTLS     HTTPTLSConfig `yaml:"http_tls"`
+	HTTP        HTTPConfig    `yaml:"http"`
+	CatalogGRPC GRPCConfig    `yaml:"catalog_grpc"`
+	AuthGRPC    GRPCConfig    `yaml:"auth_grpc"`
+	OTLP        OTLPConfig    `yaml:"otlp"`
+	AuthTLS     TLSConfig     `yaml:"auth_tls"`
 }
 
 type HTTPConfig struct {
 	Port    int           `yaml:"port" env-default:"8083"`
 	Timeout time.Duration `yaml:"timeout" env-default:"5s"`
+}
+
+type HTTPTLSConfig struct {
+	Enabled  bool   `yaml:"enabled" env-default:"false"`
+	CertFile string `yaml:"cert_file" env-default:""`
+	KeyFile  string `yaml:"key_file" env-default:""`
 }
 
 type GRPCConfig struct {
@@ -129,6 +136,15 @@ func (c *Config) Validate() error {
 		}
 		if c.AuthTLS.ClientKeyFile == "" {
 			return fmt.Errorf("auth_tls.client_key_file is required when auth_tls.enabled=true")
+		}
+	}
+
+	if c.HTTPTLS.Enabled {
+		if c.HTTPTLS.CertFile == "" {
+			return fmt.Errorf("http_tls.cert_file is required when http_tls.enabled=true")
+		}
+		if c.HTTPTLS.KeyFile == "" {
+			return fmt.Errorf("http_tls.key_file is required when http_tls.enabled=true")
 		}
 	}
 

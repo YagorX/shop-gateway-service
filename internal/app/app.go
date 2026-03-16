@@ -60,13 +60,13 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	grpc_catalog_client, err := catalog_client.NewClient(runtimeLogger.Logger, cfg.CatalogGRPC.Addr, cfg.CatalogGRPC.Timeout)
 	if err != nil {
 		_ = shutdownTracing(context.Background())
-		return nil, fmt.Errorf("create grpc client: %w", err)
+		return nil, fmt.Errorf("create grpc catalog client: %w", err)
 	}
 
 	grpc_auth_client, err := auth_client.NewClient(runtimeLogger.Logger, cfg.AuthGRPC.Addr, cfg.AuthGRPC.Timeout, cfg.AuthTLS)
 	if err != nil {
 		_ = shutdownTracing(context.Background())
-		return nil, fmt.Errorf("create grpc client: %w", err)
+		return nil, fmt.Errorf("create grpc auth client: %w", err)
 	}
 
 	catalog_adapter, err := catalog_adapter.NewRepository(grpc_catalog_client)
@@ -123,7 +123,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	httpRuntime, err := httpapp.New(runtimeLogger.Logger, httpServer)
+	httpRuntime, err := httpapp.New(runtimeLogger.Logger, httpServer, cfg.HTTPTLS.Enabled, cfg.HTTPTLS.CertFile, cfg.HTTPTLS.KeyFile)
 	if err != nil {
 		_ = shutdownTracing(context.Background())
 		return nil, fmt.Errorf("create http app: %w", err)

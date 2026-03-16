@@ -9,11 +9,20 @@ import (
 )
 
 type App struct {
-	log    *slog.Logger
-	server *http.Server
+	log        *slog.Logger
+	server     *http.Server
+	tlsEnabled bool
+	certFile   string
+	keyFile    string
 }
 
-func New(log *slog.Logger, server *http.Server) (*App, error) {
+func New(
+	log *slog.Logger,
+	server *http.Server,
+	tlsEnabled bool,
+	certFile string,
+	keyFile string,
+) (*App, error) {
 	if log == nil {
 		return nil, fmt.Errorf("logger is nil")
 	}
@@ -23,10 +32,21 @@ func New(log *slog.Logger, server *http.Server) (*App, error) {
 	if server.Addr == "" {
 		return nil, fmt.Errorf("http server addr is empty")
 	}
+	if tlsEnabled {
+		if certFile == "" {
+			return nil, fmt.Errorf("certFile is empty")
+		}
+		if keyFile == "" {
+			return nil, fmt.Errorf("keyFile is empty")
+		}
+	}
 
 	return &App{
-		log:    log,
-		server: server,
+		log:        log,
+		server:     server,
+		tlsEnabled: tlsEnabled,
+		certFile:   certFile,
+		keyFile:    keyFile,
 	}, nil
 }
 
@@ -38,11 +58,18 @@ func (a *App) Run() error {
 		slog.String("addr", a.server.Addr),
 	)
 
-	log.Info("http server started")
+	if a.tlsEnabled {
+		if err := a.server.ListenAndServeTLS(a.certFile, a.keyFile); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("%s: %w", op, err)
+		}
+		log.Info("https server started")
+		return nil
+	}
 
 	if err := a.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("%s: %w", op, err)
 	}
+	log.Info("http server started")
 
 	return nil
 }

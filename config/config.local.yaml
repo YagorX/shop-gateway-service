@@ -9,6 +9,12 @@ http:
   port: 8083
   timeout: 5s
 
+http_tls:
+  enabled: false
+  cert_file: ""
+  key_file: ""
+
+
 catalog_grpc:
   addr: localhost:9091
   timeout: 3s

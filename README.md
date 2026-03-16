@@ -1,35 +1,62 @@
 ﻿# shop-gateway
 
-`shop-gateway` — HTTP API gateway для доступа к `shop-catalog-service` по gRPC.
+`shop-gateway` — внешний API gateway проекта mini-shop.
 
-Сервис принимает HTTP-запросы, выполняет бизнес-валидацию в service-слое и проксирует чтение каталога в `catalog-service`.
+Сервис принимает HTTP(S)-запросы, отдает operational endpoints, проксирует product-запросы в `shop-catalog-service` по gRPC и auth-запросы в `shop-auth` по gRPC mTLS.
 
-## Возможности
+## Что умеет сервис
 
-1. HTTP endpoints:
+1. Отдавать product API:
    - `GET /products`
    - `GET /products/{id}`
+2. Отдавать auth API:
+   - `POST /auth/register`
+   - `POST /auth/login`
+   - `POST /auth/validate`
+   - `POST /auth/refresh`
+   - `POST /auth/logout`
+   - `POST /auth/is-admin`
+3. Отдавать operational endpoints:
    - `GET /health`
    - `GET /ready`
    - `GET /metrics`
    - `GET/POST /admin/log-level`
-2. Слоистая архитектура:
-   - `transport/http` (handlers + router)
-   - `service/gateway` (бизнес-логика)
-   - `adapters/catalog_grpc` (адаптер порта)
-   - `client/grpc/catalog` (gRPC транспорт)
-3. Observability:
-   - JSON-логи (`slog`)
-   - Prometheus-метрики (`gateway_*`)
-   - OpenTelemetry-трейсинг (HTTP + gRPC client)
+4. Проксировать внутренние вызовы в:
+   - `catalog-service` по gRPC
+   - `auth-service` по gRPC mTLS
 
-## Архитектура запроса
+## Security model
 
-1. HTTP-запрос приходит в `handlers/products.go`.
+1. В Docker-окружении gateway публикуется наружу по HTTPS.
+2. Канал `gateway -> auth-service` защищен клиентским и серверным сертификатами через mTLS.
+3. Gateway работает как edge-компонент для JWT-based auth flow.
+4. Сам gateway не хранит пользовательские пароли и не генерирует токены, а делегирует это `shop-auth`.
+
+## Архитектура
+
+Слои:
+
+1. `transport/http/v1` — handlers, router, JSON contract, health/admin endpoints.
+2. `service/gateway` — orchestration, logging, metrics, tracing.
+3. `adapters/catalog_grpc` и `adapters/auth_grpc` — реализация портов.
+4. `client/grpc/catalog` и `client/grpc/auth` — транспортный слой gRPC клиентов.
+5. `app/*` — bootstrap и lifecycle.
+
+Поток product-запроса:
+
+1. HTTP запрос приходит в products handler.
 2. Handler вызывает `GatewayService`.
-3. `GatewayService` валидирует вход и вызывает интерфейс `ProductRepository`.
-4. `CatalogAdapter` реализует `ProductRepository` через `client/grpc/catalog`.
-5. gRPC вызов уходит в `shop-catalog-service`.
+3. Service пишет метрики и spans.
+4. Catalog adapter вызывает gRPC client.
+5. Вызов уходит в `shop-catalog-service`.
+
+Поток auth-запроса:
+
+1. HTTP запрос приходит в auth handler.
+2. Handler вызывает `GatewayService`.
+3. Service пишет метрики и spans.
+4. Auth adapter вызывает gRPC client с TLS credentials.
+5. Вызов уходит в `shop-auth`.
 
 ## Конфигурация
 
@@ -40,10 +67,24 @@
 
 Ключевые поля:
 
-1. `http.port` — порт HTTP сервера (`8083`)
-2. `catalog_grpc.addr` — адрес `catalog-service` (`host:port`)
-3. `catalog_grpc.timeout` — таймаут исходящих gRPC-вызовов
-4. `otlp.endpoint` — OTLP endpoint для трейсов
+1. `http.port` — порт gateway (`8083`)
+2. `http_tls.*` — внешний HTTPS сервер
+3. `catalog_grpc.addr` — адрес `catalog-service`
+4. `catalog_grpc.timeout` — таймаут каталожных gRPC вызовов
+5. `auth_grpc.addr` — адрес `auth-service`
+6. `auth_grpc.timeout` — таймаут auth gRPC вызовов
+7. `auth_tls.*` — CA, `server_name` и client cert/key для mTLS
+8. `otlp.endpoint` — OTLP endpoint для traces
+
+Локальная конфигурация по умолчанию:
+
+1. `http_tls.enabled: false`
+2. `auth_tls.enabled: false`
+
+Docker-конфигурация:
+
+1. `http_tls.enabled: true`
+2. `auth_tls.enabled: true`
 
 ## Локальный запуск
 
@@ -77,12 +118,41 @@ docker run --rm -p 8083:8083 --name gateway-service shop-gateway:local
 Из `shop-platform/deploy`:
 
 ```bash
-docker compose up -d --build jaeger postgres redis catalog-service gateway-service
+docker compose up -d --build auth-service catalog-service gateway-service
+```
+
+## Проверка Docker-режима
+
+В Docker окружении gateway ожидает HTTPS, поэтому для host-side CLI нужен `-k`:
+
+```bash
+curl -k https://localhost:8083/health
+curl -k https://localhost:8083/ready
+curl -k https://localhost:8083/metrics
+curl -k https://localhost:8083/products
+```
+
+Пример register:
+
+```bash
+curl -k -X POST https://localhost:8083/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"demo","email":"demo@example.com","password":"Test123!"}'
+```
+
+Пример login:
+
+```bash
+curl -k -X POST https://localhost:8083/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email_or_name":"demo","password":"Test123!","app_id":1,"device_id":"dev-1"}'
 ```
 
 ## API
 
-### `GET /products`
+### Products
+
+`GET /products`
 
 Query:
 
@@ -98,7 +168,7 @@ Query:
 }
 ```
 
-### `GET /products/{id}`
+`GET /products/{id}`
 
 Успех:
 
@@ -115,6 +185,38 @@ Query:
 }
 ```
 
+### Auth
+
+`POST /auth/register`
+
+```json
+{
+  "username": "demo",
+  "email": "demo@example.com",
+  "password": "Test123!"
+}
+```
+
+`POST /auth/login`
+
+```json
+{
+  "email_or_name": "demo",
+  "password": "Test123!",
+  "app_id": 1,
+  "device_id": "dev-1"
+}
+```
+
+`POST /auth/validate`
+
+```json
+{
+  "token": "<access_token>",
+  "app_id": 1
+}
+```
+
 ### Формат ошибок
 
 Все ошибки отдаются в JSON:
@@ -122,8 +224,8 @@ Query:
 ```json
 {
   "error": {
-    "code": "product_not_found",
-    "message": "product not found"
+    "code": "internal_error",
+    "message": "internal error"
   }
 }
 ```
@@ -135,7 +237,10 @@ Query:
 3. `invalid_pagination`
 4. `invalid_product_id`
 5. `product_not_found`
-6. `internal_error`
+6. `already_exists`
+7. `not_found`
+8. `unauthenticated`
+9. `internal_error`
 
 ## Метрики
 
@@ -156,29 +261,39 @@ gRPC client:
 
 ## Tracing
 
-1. Входящий HTTP-трафик инструментирован через `otelhttp`.
-2. Service-слой создает child spans (`service.gateway.ListProducts`, `service.gateway.GetProduct`).
-3. Исходящий gRPC клиент инструментирован через `otelgrpc.NewClientHandler`.
-4. Контекст прокидывается в `catalog-service`, trace сквозной.
+1. Входящий HTTP инструментирован через `otelhttp`.
+2. Service-слой создает spans вида `service.gateway.*`.
+3. Исходящие gRPC клиенты инструментированы через `otelgrpc.NewClientHandler`.
+4. В Jaeger видны цепочки:
+   - `gateway -> catalog`
+   - `gateway -> auth`
 
 ## Readiness
 
-`/ready` проверяет доступность `catalog-service` через `grpc.health.v1.Health/Check`.
+`/ready` для gateway проверяет две зависимости:
 
-Для стабильного readiness-check в gateway используется блокирующее подключение (`DialContext + WithBlock`) и ограниченный timeout.
+1. `catalog-service` через gRPC health-check
+2. `auth-service` через gRPC health-check c TLS credentials
+
+Если хотя бы одна зависимость недоступна, gateway отвечает `503`.
 
 ## Структура проекта
 
 ```text
 shop-gateway/
-  cmd/gateway/main.go
+  cmd/
+    gateway/main.go
   config/
     config.local.yaml
     config.docker.yaml
   internal/
-    adapters/catalog_grpc/
+    adapters/
+      auth_grpc/
+      catalog_grpc/
     app/
-    client/grpc/catalog/
+    client/grpc/
+      auth/
+      catalog/
     config/
     domain/
     observability/
@@ -189,8 +304,10 @@ shop-gateway/
 
 ## Чеклист готовности
 
-1. `go test ./...` проходит
-2. `GET /health` возвращает `200`
-3. `GET /ready` возвращает `200` при доступном `catalog-service`
-4. `GET /metrics` отдает `gateway_*`
-5. В Jaeger виден trace `gateway -> catalog`
+1. `GET /health` возвращает `200`
+2. `GET /ready` возвращает `200`, когда доступны `catalog-service` и `auth-service`
+3. `GET /metrics` отдает `gateway_*`
+4. `GET /products` и auth flow работают через gateway
+5. В Jaeger видны trace chains для auth и catalog
+6. В Docker-режиме gateway отвечает по HTTPS
+7. Канал `gateway -> auth-service` защищен mTLS
