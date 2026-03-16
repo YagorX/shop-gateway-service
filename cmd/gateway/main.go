@@ -32,10 +32,7 @@ func main() {
 		log.Fatal("config path is empty: use --config or CONFIG_PATH")
 	}
 
-	cfg, err := config.Load(configPath)
-	if err != nil {
-		log.Fatalf("failed to load config: %v", err)
-	}
+	cfg := config.MustLoadByPath(configPath)
 
 	application, err := app.New(context.Background(), cfg)
 	if err != nil {

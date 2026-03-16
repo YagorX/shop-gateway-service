@@ -13,9 +13,17 @@ catalog_grpc:
   addr: catalog-service:9091
   timeout: 3s
 
-otlp:
-  endpoint: jaeger:4317
-
 auth_grpc:
   addr: auth-service:44044
   timeout: 3s
+
+auth_tls:
+  enabled: true
+  ca_file: /app/certs/ca.crt
+  server_name: auth-service
+  client_cert_file: /app/certs/gateway-client.crt
+  client_key_file: /app/certs/gateway-client.key
+
+
+otlp:
+  endpoint: jaeger:4317

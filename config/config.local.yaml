@@ -11,11 +11,16 @@ http:
 
 catalog_grpc:
   addr: localhost:9091
-  timeout: 2s
-
-otlp:
-  endpoint: localhost:4317
+  timeout: 3s
 
 auth_grpc:
   addr: localhost:44044
   timeout: 3s
+
+auth_tls:
+  enabled: false
+  ca_file: ""
+  server_name: ""
+
+otlp:
+  endpoint: localhost:4317

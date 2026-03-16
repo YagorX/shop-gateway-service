@@ -14,6 +14,7 @@ RUN addgroup -S app && adduser -S app -G app
 
 COPY --from=builder /out/gateway-service /app/gateway-service
 COPY config/config.docker.yaml /app/config/config.docker.yaml
+COPY certs ./certs
 
 USER app
 

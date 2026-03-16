@@ -1,6 +1,7 @@
 package config
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"time"
@@ -14,69 +15,64 @@ type Config struct {
 	Version         string        `yaml:"version" env-default:"dev"`
 	LogLevel        string        `yaml:"log_level" env-default:"info"`
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" env-default:"10s"`
-	CatalogGRPC     CatalogGRPC   `yaml:"catalog_grpc"`
-	AuthGRPC        AuthGRPC      `yaml:"auth_grpc"`
-	HTTP            HTTPConfig    `yaml:"http"`
-	OTLP            OTLPConfig    `yaml:"otlp"`
-}
 
-type CatalogGRPC struct {
-	Addr    string        `yaml:"addr" env-default:"localhost:9091"`
-	Timeout time.Duration `yaml:"timeout" env-default:"5s"`
-}
-
-type AuthGRPC struct {
-	Addr    string        `yaml:"addr" env-default:"localhost:44044"`
-	Timeout time.Duration `yaml:"timeout" env-default:"5s"`
+	HTTP        HTTPConfig `yaml:"http"`
+	CatalogGRPC GRPCConfig `yaml:"catalog_grpc"`
+	AuthGRPC    GRPCConfig `yaml:"auth_grpc"`
+	OTLP        OTLPConfig `yaml:"otlp"`
+	AuthTLS     TLSConfig  `yaml:"auth_tls"`
 }
 
 type HTTPConfig struct {
-	Port    int           `yaml:"port" env-default:"8082"`
+	Port    int           `yaml:"port" env-default:"8083"`
 	Timeout time.Duration `yaml:"timeout" env-default:"5s"`
 }
 
-type OTLPConfig struct {
-	Endpoint string `yaml:"endpoint" env:"OTLP_ENDPOINT" env-default:"jaeger:4317"`
+type GRPCConfig struct {
+	Addr    string        `yaml:"addr"`
+	Timeout time.Duration `yaml:"timeout" env-default:"3s"`
 }
 
-// Load reads config from YAML and validates the result.
-func Load(path string) (*Config, error) {
+type OTLPConfig struct {
+	Endpoint string `yaml:"endpoint" env-default:"localhost:4317"`
+}
+
+type TLSConfig struct {
+	Enabled        bool   `yaml:"enabled" env-default:"false"`
+	CAFile         string `yaml:"ca_file" env-default:""`
+	ServerName     string `yaml:"server_name" env-default:""`
+	ClientCertFile string `yaml:"client_cert_file" env-default:""`
+	ClientKeyFile  string `yaml:"client_key_file" env-default:""`
+}
+
+func MustLoad() *Config {
+	path := fetchConfigPath()
 	if path == "" {
-		return nil, fmt.Errorf("config path is empty")
+		panic("config path is empty")
 	}
 
+	return mustLoadByPath(path)
+}
+
+func MustLoadByPath(path string) *Config {
+	return mustLoadByPath(path)
+}
+
+func mustLoadByPath(path string) *Config {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil, fmt.Errorf("config file does not exist: %s", path)
+		panic("config file does not exist: " + path)
 	}
 
 	var cfg Config
 	if err := cleanenv.ReadConfig(path, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to read config: %w", err)
+		panic("failed to read config: " + err.Error())
 	}
 
 	if err := cfg.Validate(); err != nil {
-		return nil, err
+		panic("invalid config: " + err.Error())
 	}
 
-	return &cfg, nil
-}
-
-func MustLoad(path string) *Config {
-	var cfg Config
-	if err := cleanenv.ReadConfig(path, &cfg); err != nil {
-		panic("failed to load config: " + err.Error())
-	}
 	return &cfg
-}
-
-// MustLoadByPath keeps bootstrap code short in main().
-func MustLoadByPath(path string) *Config {
-	cfg, err := Load(path)
-	if err != nil {
-		panic(err)
-	}
-
-	return cfg
 }
 
 func (c *Config) Validate() error {
@@ -86,28 +82,72 @@ func (c *Config) Validate() error {
 	if c.Env == "" {
 		return fmt.Errorf("env is required")
 	}
-	if c.HTTP.Port <= 0 || c.HTTP.Port > 65535 {
-		return fmt.Errorf("http.port is required")
+	if c.Version == "" {
+		return fmt.Errorf("version is required")
 	}
-	if c.HTTP.Timeout <= 0 {
-		return fmt.Errorf("http.timeout must be > 0")
+	if c.LogLevel == "" {
+		return fmt.Errorf("log_level is required")
 	}
 	if c.ShutdownTimeout <= 0 {
 		return fmt.Errorf("shutdown_timeout must be > 0")
 	}
+
+	if c.HTTP.Port <= 0 {
+		return fmt.Errorf("http.port must be > 0")
+	}
+	if c.HTTP.Timeout <= 0 {
+		return fmt.Errorf("http.timeout must be > 0")
+	}
+
+	if c.CatalogGRPC.Addr == "" {
+		return fmt.Errorf("catalog_grpc.addr is required")
+	}
+	if c.CatalogGRPC.Timeout <= 0 {
+		return fmt.Errorf("catalog_grpc.timeout must be > 0")
+	}
+
+	if c.AuthGRPC.Addr == "" {
+		return fmt.Errorf("auth_grpc.addr is required")
+	}
+	if c.AuthGRPC.Timeout <= 0 {
+		return fmt.Errorf("auth_grpc.timeout must be > 0")
+	}
+
 	if c.OTLP.Endpoint == "" {
 		return fmt.Errorf("otlp.endpoint is required")
 	}
-	if c.AuthGRPC.Addr == "" {
-		return fmt.Errorf("authgrpc.addr is required")
-	}
-	if c.AuthGRPC.Timeout <= 0 {
-		return fmt.Errorf("authgrpc.timeout must be > 0")
+
+	if c.AuthTLS.Enabled {
+		if c.AuthTLS.CAFile == "" {
+			return fmt.Errorf("auth_tls.ca_file is required when auth_tls.enabled=true")
+		}
+		if c.AuthTLS.ServerName == "" {
+			return fmt.Errorf("auth_tls.server_name is required when auth_tls.enabled=true")
+		}
+		if c.AuthTLS.ClientCertFile == "" {
+			return fmt.Errorf("auth_tls.client_cert_file is required when auth_tls.enabled=true")
+		}
+		if c.AuthTLS.ClientKeyFile == "" {
+			return fmt.Errorf("auth_tls.client_key_file is required when auth_tls.enabled=true")
+		}
 	}
 
 	return nil
 }
 
-func (c Config) HTTPAddr() string {
+func (c *Config) HTTPAddr() string {
 	return fmt.Sprintf(":%d", c.HTTP.Port)
+}
+
+func fetchConfigPath() string {
+	var path string
+
+	flag.StringVar(&path, "config", "", "path to config file")
+	flag.Parse()
+
+	if path == "" {
+		path = os.Getenv("CONFIG_PATH")
+	}
+
+	return path
 }

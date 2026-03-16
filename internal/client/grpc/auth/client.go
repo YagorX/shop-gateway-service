@@ -2,16 +2,21 @@ package auth_client
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"time"
 
 	authv1 "github.com/YagorX/shop-contracts/gen/go/proto/auth/v1"
+	"github.com/YagorX/shop-gateway/internal/config"
 	"github.com/YagorX/shop-gateway/internal/observability"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
@@ -25,31 +30,14 @@ type Client struct {
 	client authv1.AuthServiceClient
 }
 
-// func NewClient(log *slog.Logger, addr string, timeout time.Duration) (*Client, error) {
-// 	if err := validateAuthClient(addr, timeout, log); err != nil {
-// 		return nil, fmt.Errorf("validate auth client: %w", err)
-// 	}
-
-// 	conn, err := grpc.NewClient(
-// 		addr,
-// 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-// 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
-// 	)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("create grpc client: %w", err)
-// 	}
-
-//		return &Client{
-//			log:     log,
-//			addr:    addr,
-//			timeout: timeout,
-//			conn:    conn,
-//			client:  authv1.NewAuthServiceClient(conn),
-//		}, nil
-//	}
-func NewClient(log *slog.Logger, addr string, timeout time.Duration) (*Client, error) {
+func NewClient(log *slog.Logger, addr string, timeout time.Duration, tlsCfg config.TLSConfig) (*Client, error) {
 	if err := validateAuthClient(addr, timeout, log); err != nil {
 		return nil, fmt.Errorf("validate auth client: %w", err)
+	}
+
+	transportCreds, err := buildTransportCredentials(tlsCfg)
+	if err != nil {
+		return nil, fmt.Errorf("build auth transport credentials: %w", err)
 	}
 
 	dialCtx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -58,7 +46,7 @@ func NewClient(log *slog.Logger, addr string, timeout time.Duration) (*Client, e
 	conn, err := grpc.DialContext(
 		dialCtx,
 		addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(transportCreds),
 		grpc.WithBlock(),
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 	)
@@ -73,6 +61,36 @@ func NewClient(log *slog.Logger, addr string, timeout time.Duration) (*Client, e
 		conn:    conn,
 		client:  authv1.NewAuthServiceClient(conn),
 	}, nil
+}
+
+func buildTransportCredentials(tlsCfg config.TLSConfig) (credentials.TransportCredentials, error) {
+	if !tlsCfg.Enabled {
+		return insecure.NewCredentials(), nil
+	}
+
+	caPEM, err := os.ReadFile(tlsCfg.CAFile)
+	if err != nil {
+		return nil, fmt.Errorf("read ca file: %w", err)
+	}
+
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caPEM) {
+		return nil, errors.New("append ca cert to pool")
+	}
+
+	clientCert, err := tls.LoadX509KeyPair(tlsCfg.ClientCertFile, tlsCfg.ClientKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("load client certificate: %w", err)
+	}
+
+	tlsConfig := &tls.Config{
+		RootCAs:      pool,
+		ServerName:   tlsCfg.ServerName,
+		Certificates: []tls.Certificate{clientCert},
+		MinVersion:   tls.VersionTLS12,
+	}
+
+	return credentials.NewTLS(tlsConfig), nil
 }
 
 func (c *Client) Close() error {
@@ -274,14 +292,11 @@ func validateAuthClient(addr string, timeout time.Duration, logger *slog.Logger)
 	if addr == "" {
 		return errors.New("addr is empty")
 	}
-
 	if timeout <= 0 {
 		return errors.New("timeout is null")
 	}
-
 	if logger == nil {
 		return errors.New("logger is null")
 	}
-
 	return nil
 }

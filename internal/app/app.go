@@ -63,7 +63,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		return nil, fmt.Errorf("create grpc client: %w", err)
 	}
 
-	grpc_auth_client, err := auth_client.NewClient(runtimeLogger.Logger, cfg.AuthGRPC.Addr, cfg.AuthGRPC.Timeout)
+	grpc_auth_client, err := auth_client.NewClient(runtimeLogger.Logger, cfg.AuthGRPC.Addr, cfg.AuthGRPC.Timeout, cfg.AuthTLS)
 	if err != nil {
 		_ = shutdownTracing(context.Background())
 		return nil, fmt.Errorf("create grpc client: %w", err)
@@ -98,6 +98,13 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 				grpchandlers.AuthHealthChecker{
 					Addr:    cfg.AuthGRPC.Addr,
 					Timeout: cfg.AuthGRPC.Timeout,
+					TLS: grpchandlers.TLSConfig{
+						Enabled:        cfg.AuthTLS.Enabled,
+						CAFile:         cfg.AuthTLS.CAFile,
+						ServerName:     cfg.AuthTLS.ServerName,
+						ClientCertFile: cfg.AuthTLS.ClientCertFile,
+						ClientKeyFile:  cfg.AuthTLS.ClientKeyFile,
+					},
 				},
 			},
 		},
