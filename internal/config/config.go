@@ -16,12 +16,19 @@ type Config struct {
 	LogLevel        string        `yaml:"log_level" env-default:"info"`
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" env-default:"10s"`
 
-	HTTPTLS     HTTPTLSConfig `yaml:"http_tls"`
-	HTTP        HTTPConfig    `yaml:"http"`
-	CatalogGRPC GRPCConfig    `yaml:"catalog_grpc"`
-	AuthGRPC    GRPCConfig    `yaml:"auth_grpc"`
-	OTLP        OTLPConfig    `yaml:"otlp"`
-	AuthTLS     TLSConfig     `yaml:"auth_tls"`
+	HTTPTLS      HTTPTLSConfig `yaml:"http_tls"`
+	HTTP         HTTPConfig    `yaml:"http"`
+	CatalogGRPC  GRPCConfig    `yaml:"catalog_grpc"`
+	AuthGRPC     GRPCConfig    `yaml:"auth_grpc"`
+	OTLP         OTLPConfig    `yaml:"otlp"`
+	AuthTLS      TLSConfig     `yaml:"auth_tls"`
+	Swagger      SwaggerConfig `yaml:"swagger"`
+	TemplatePath string        `yaml:"template_path" env-default:""`
+}
+
+type SwaggerConfig struct {
+	UIPath   string `yaml:"ui_path" env-default:""`
+	SpecPath string `yaml:"spec_path" env-default:""`
 }
 
 type HTTPConfig struct {

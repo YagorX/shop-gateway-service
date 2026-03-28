@@ -9,6 +9,7 @@
 1. Отдавать product API:
    - `GET /products`
    - `GET /products/{id}`
+   - `GET /products/stream`
 2. Отдавать auth API:
    - `POST /auth/register`
    - `POST /auth/login`
@@ -20,7 +21,9 @@
    - `GET /health`
    - `GET /ready`
    - `GET /metrics`
+   - `GET /status`
    - `GET/POST /admin/log-level`
+   - `GET /swagger/`
 4. Проксировать внутренние вызовы в:
    - `catalog-service` по gRPC
    - `auth-service` по gRPC mTLS
@@ -31,6 +34,17 @@
 2. Канал `gateway -> auth-service` защищен клиентским и серверным сертификатами через mTLS.
 3. Gateway работает как edge-компонент для JWT-based auth flow.
 4. Сам gateway не хранит пользовательские пароли и не генерирует токены, а делегирует это `shop-auth`.
+5. Текущий `logout` отзывaет `refresh token`, а действующий `access token` остается валиден до истечения `exp`.
+
+## Ограничения и следующие шаги
+
+1. Текущая модель logout соответствует stateless JWT-подходу: после выхода нельзя перевыпустить новую access-сессию через `refresh`, но уже выданный `access token` живет до своего TTL.
+2. Для production-like мгновенного logout следующим шагом стоит внедрить server-side session validation:
+   - завести `session_id` или `token_version`;
+   - включать этот идентификатор в `access token`;
+   - проверять статус сессии в `ValidateToken`;
+   - отзывать сессию целиком в `Logout`.
+3. Такой подход позволит сразу закрывать доступ к protected endpoints вроде `/products` и `/auth/is-admin` после нажатия "Выйти", не дожидаясь истечения access token.
 
 ## Архитектура
 
@@ -49,6 +63,13 @@
 3. Service пишет метрики и spans.
 4. Catalog adapter вызывает gRPC client.
 5. Вызов уходит в `shop-catalog-service`.
+
+Поток streaming-запроса:
+
+1. Клиент вызывает `GET /products/stream`.
+2. Gateway открывает внутренний gRPC stream `StreamProducts`.
+3. Gateway читает элементы по одному.
+4. Gateway отдает их наружу как SSE (`text/event-stream`).
 
 Поток auth-запроса:
 
@@ -75,6 +96,8 @@
 6. `auth_grpc.timeout` — таймаут auth gRPC вызовов
 7. `auth_tls.*` — CA, `server_name` и client cert/key для mTLS
 8. `otlp.endpoint` — OTLP endpoint для traces
+9. `swagger.*` — пути к Swagger UI и OpenAPI spec
+10. `template_path` — путь к HTML шаблону status page
 
 Локальная конфигурация по умолчанию:
 
@@ -100,6 +123,8 @@ go run ./cmd/gateway --config config/config.local.yaml
 curl http://127.0.0.1:8083/health
 curl http://127.0.0.1:8083/ready
 curl http://127.0.0.1:8083/metrics
+curl http://127.0.0.1:8083/status
+curl http://127.0.0.1:8083/swagger/
 curl "http://127.0.0.1:8083/products?limit=5&offset=0"
 curl http://127.0.0.1:8083/products/prod-001
 ```
@@ -129,6 +154,8 @@ docker compose up -d --build auth-service catalog-service gateway-service
 curl -k https://localhost:8083/health
 curl -k https://localhost:8083/ready
 curl -k https://localhost:8083/metrics
+curl -k https://localhost:8083/status
+curl -k https://localhost:8083/swagger/
 curl -k https://localhost:8083/products
 ```
 
@@ -185,6 +212,33 @@ Query:
 }
 ```
 
+`GET /products/stream`
+
+Особенности:
+
+1. endpoint защищен auth middleware;
+2. требует `Authorization: Bearer <access_token>`;
+3. требует `X-App-Id`;
+4. отдает SSE поток (`text/event-stream`).
+
+Пример:
+
+```bash
+curl -N -k "https://localhost:8083/products/stream?limit=3&offset=0" \
+  -H "Authorization: Bearer <access_token>" \
+  -H "X-App-Id: 1"
+```
+
+Ожидаемый формат:
+
+```text
+event: product
+data: {...}
+
+event: end
+data: {"status":"completed"}
+```
+
 ### Auth
 
 `POST /auth/register`
@@ -216,6 +270,48 @@ Query:
   "app_id": 1
 }
 ```
+
+### Middleware
+
+Для protected routes gateway использует auth middleware.
+
+Middleware:
+
+1. читает `Authorization: Bearer ...`;
+2. читает `X-App-Id`;
+3. валидирует токен через `shop-auth`;
+4. пускает запрос дальше только при успешной проверке.
+
+Protected routes:
+
+1. `GET /products`
+2. `GET /products/{id}`
+3. `GET /products/stream`
+4. `POST /auth/is-admin`
+
+### Status Page
+
+`GET /status`
+
+HTML страница рендерится через `html/template` и показывает:
+
+1. service name
+2. environment
+3. version
+4. HTTP address
+5. HTTPS enabled
+6. current status
+7. generation time
+
+### Swagger
+
+Swagger UI доступен по:
+
+1. `GET /swagger/`
+
+OpenAPI spec раздается по:
+
+1. `GET /swagger/spec/gateway.v1.yaml`
 
 ### Формат ошибок
 
@@ -267,6 +363,7 @@ gRPC client:
 4. В Jaeger видны цепочки:
    - `gateway -> catalog`
    - `gateway -> auth`
+   - `gateway -> catalog stream`
 
 ## Readiness
 
@@ -311,3 +408,5 @@ shop-gateway/
 5. В Jaeger видны trace chains для auth и catalog
 6. В Docker-режиме gateway отвечает по HTTPS
 7. Канал `gateway -> auth-service` защищен mTLS
+8. `/swagger/` и `/status` доступны через gateway
+9. `GET /products/stream` отдает SSE поток

@@ -153,3 +153,29 @@ func validateCatalogClient(addr string, timeout time.Duration, logger *slog.Logg
 
 	return nil
 }
+
+func (c *Client) StreamProducts(
+	ctx context.Context,
+	limit uint32,
+	offset uint32,
+) (catalogv1.CatalogService_StreamProductsClient, error) {
+	const op = "client.grpc.catalog.StreamProducts"
+	startedAt := time.Now()
+	metrics := observability.MustMetrics()
+	grpcCode := codes.OK.String()
+	defer func() {
+		metrics.GatewayGRPCRequestDuration.WithLabelValues("StreamProducts").Observe(time.Since(startedAt).Seconds())
+		metrics.GatewayGRPCRequestsTotal.WithLabelValues("StreamProducts", grpcCode).Inc()
+	}()
+
+	stream, err := c.client.StreamProducts(ctx, &catalogv1.ListProductsRequest{
+		Limit:  limit,
+		Offset: offset,
+	})
+	if err != nil {
+		grpcCode = status.Code(err).String()
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+
+	return stream, nil
+}

@@ -1,0 +1,276 @@
+openapi: 3.0.3
+info:
+  title: Shop Gateway API
+  version: 1.0.0
+  description: Public HTTP API for the mini-shop gateway.
+
+servers:
+  - url: /
+    description: Current gateway origin
+
+tags:
+  - name: System
+  - name: Catalog
+  - name: Auth
+  - name: Admin
+
+paths:
+  /health:
+    $ref: './gateway.v1/paths/health.yaml'
+  /ready:
+    $ref: './gateway.v1/paths/ready.yaml'
+  /metrics:
+    $ref: './gateway.v1/paths/metrics.yaml'
+  /admin/log-level:
+    $ref: './gateway.v1/paths/admin_log_level.yaml'
+  /products:
+    $ref: './gateway.v1/paths/products.yaml'
+  /products/{id}:
+    $ref: './gateway.v1/paths/products_by_id.yaml'
+  /auth/register:
+    $ref: './gateway.v1/paths/auth_register.yaml'
+  /auth/login:
+    $ref: './gateway.v1/paths/auth_login.yaml'
+  /auth/validate:
+    $ref: './gateway.v1/paths/auth_validate.yaml'
+  /auth/refresh:
+    $ref: './gateway.v1/paths/auth_refresh.yaml'
+  /auth/logout:
+    $ref: './gateway.v1/paths/auth_logout.yaml'
+  /auth/is-admin:
+    $ref: './gateway.v1/paths/auth_is_admin.yaml'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    XAppIdHeader:
+      in: header
+      name: X-App-Id
+      required: true
+      description: Application identifier used by gateway middleware during token validation.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+
+  schemas:
+    StatusResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+
+    ReadyErrorResponse:
+      type: object
+      required: [status, error]
+      properties:
+        status:
+          type: string
+          example: not_ready
+        error:
+          type: string
+
+    LogLevelResponse:
+      type: object
+      required: [level]
+      properties:
+        level:
+          type: string
+          example: info
+
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorBody'
+
+    ErrorBody:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: unauthorized
+        message:
+          type: string
+          example: token validation failed
+
+    Product:
+      type: object
+      required: [ID, SKU, Name, Description, PriceCents, Currency, Stock, Active]
+      properties:
+        ID:
+          type: string
+          example: prod-001
+        SKU:
+          type: string
+          example: SKU-001
+        Name:
+          type: string
+          example: Coffee Mug
+        Description:
+          type: string
+          example: Ceramic mug
+        PriceCents:
+          type: integer
+          format: int64
+          minimum: 0
+          example: 1999
+        Currency:
+          type: string
+          example: USD
+        Stock:
+          type: integer
+          format: int32
+          minimum: 0
+          example: 10
+        Active:
+          type: boolean
+          example: true
+
+    ListProductsResponse:
+      type: object
+      required: [items, count]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+        count:
+          type: integer
+          example: 2
+
+    RegisterRequest:
+      type: object
+      required: [username, email, password]
+      properties:
+        username:
+          type: string
+          example: demo
+        email:
+          type: string
+          format: email
+          example: demo@example.com
+        password:
+          type: string
+          format: password
+          example: Test123!
+
+    RegisterResponse:
+      type: object
+      required: [user_uuid]
+      properties:
+        user_uuid:
+          type: string
+          format: uuid
+
+    LoginRequest:
+      type: object
+      required: [email_or_name, password, app_id, device_id]
+      properties:
+        email_or_name:
+          type: string
+          example: demo
+        password:
+          type: string
+          format: password
+          example: Test123!
+        app_id:
+          type: integer
+          format: int64
+          minimum: 1
+          example: 1
+        device_id:
+          type: string
+          example: web-1
+
+    LoginResponse:
+      type: object
+      required: [access_token, refresh_token]
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+
+    ValidateRequest:
+      type: object
+      required: [token, app_id]
+      properties:
+        token:
+          type: string
+        app_id:
+          type: integer
+          format: int64
+          minimum: 1
+          example: 1
+
+    ValidateResponse:
+      type: object
+      required: [user_uuid]
+      properties:
+        user_uuid:
+          type: string
+          format: uuid
+
+    RefreshRequest:
+      type: object
+      required: [refresh_token, app_id, device_id]
+      properties:
+        refresh_token:
+          type: string
+        app_id:
+          type: integer
+          format: int64
+          minimum: 1
+          example: 1
+        device_id:
+          type: string
+          example: web-1
+
+    LogoutRequest:
+      type: object
+      required: [refresh_token, app_id, device_id]
+      properties:
+        refresh_token:
+          type: string
+        app_id:
+          type: integer
+          format: int64
+          minimum: 1
+          example: 1
+        device_id:
+          type: string
+          example: web-1
+
+    LogoutResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          example: true
+
+    IsAdminRequest:
+      type: object
+      required: [user_uuid]
+      properties:
+        user_uuid:
+          type: string
+          format: uuid
+
+    IsAdminResponse:
+      type: object
+      required: [is_admin]
+      properties:
+        is_admin:
+          type: boolean
+          example: false

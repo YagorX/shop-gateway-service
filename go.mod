@@ -38,7 +38,7 @@ require (
 
 require (
 	github.com/BurntSushi/toml v1.2.1 // indirect
-	github.com/YagorX/shop-contracts v0.0.0-20260314084250-a9e88aa61c69
+	github.com/YagorX/shop-contracts v0.0.0-20260324174222-80c256fb52cf
 	github.com/joho/godotenv v1.5.1 // indirect
 	github.com/prometheus/client_golang v1.23.2
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.66.0

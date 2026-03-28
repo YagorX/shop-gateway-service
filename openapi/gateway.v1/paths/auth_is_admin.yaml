@@ -1,0 +1,39 @@
+post:
+  tags: [Auth]
+  summary: Check whether a user is admin
+  operationId: isAdmin
+  security:
+    - bearerAuth: []
+  parameters:
+    - $ref: '../../gateway.v1.yaml#/components/parameters/XAppIdHeader'
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../../gateway.v1.yaml#/components/schemas/IsAdminRequest'
+  responses:
+    '200':
+      description: Admin flag
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/IsAdminResponse'
+    '400':
+      description: Invalid request or invalid X-App-Id header
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    '401':
+      description: Missing or invalid bearer token
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    '500':
+      description: Internal error
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'

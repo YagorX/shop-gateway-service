@@ -16,8 +16,10 @@ import (
 	"github.com/YagorX/shop-gateway/internal/config"
 	"github.com/YagorX/shop-gateway/internal/observability"
 	gateway_srv "github.com/YagorX/shop-gateway/internal/service/gateway"
+	_ "github.com/YagorX/shop-gateway/internal/transport/grpc/v1/handlers"
 	grpchandlers "github.com/YagorX/shop-gateway/internal/transport/grpc/v1/handlers"
 	httpv1 "github.com/YagorX/shop-gateway/internal/transport/http/v1"
+	handlershttp "github.com/YagorX/shop-gateway/internal/transport/http/v1/handlers"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
@@ -87,6 +89,17 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		return nil, fmt.Errorf("create gateway_service: %w", err)
 	}
 
+	swaggerHandler := handlershttp.NewSwaggerHandler(cfg.Swagger.UIPath, cfg.Swagger.SpecPath)
+	statusHandler := handlershttp.NewStatusHandler(cfg.TemplatePath, handlershttp.StatusPageData{
+		ServiceName:  cfg.ServiceName,
+		Environment:  cfg.Env,
+		Version:      cfg.Version,
+		HTTPAddress:  cfg.HTTPAddr(),
+		HTTPSEnabled: cfg.HTTPTLS.Enabled,
+		Status:       "ready",
+		Now:          time.Now().String(),
+	})
+
 	httpRouter := httpv1.NewRouter(httpv1.RouterDeps{
 		LogLevelController: runtimeLogger,
 		ReadinessChecker: grpchandlers.MultiReadinessChecker{
@@ -110,6 +123,8 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		},
 		ProductService: gatewaySrv,
 		AuthService:    gatewaySrv,
+		SwaggerHandler: swaggerHandler,
+		StatusHandler:  statusHandler,
 	})
 
 	otelHandler := otelhttp.NewHandler(httpRouter, "gateway.http")

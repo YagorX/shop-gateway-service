@@ -1,0 +1,13 @@
+get:
+  tags: [System]
+  summary: Liveness probe
+  operationId: health
+  responses:
+    '200':
+      description: Service is alive
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/StatusResponse'
+    '405':
+      description: Method not allowed

@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{.ServiceName}} Status</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f7fb;
+      --card: #ffffff;
+      --text: #152033;
+      --muted: #5f6b7a;
+      --accent: #0f766e;
+      --border: #d8e1ea;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      background: linear-gradient(180deg, #eef4f8 0%, #f8fafc 100%);
+      color: var(--text);
+    }
+
+    .wrap {
+      max-width: 820px;
+      margin: 48px auto;
+      padding: 0 20px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px;
+      box-shadow: 0 18px 45px rgba(21, 32, 51, 0.08);
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 32px;
+      line-height: 1.1;
+    }
+
+    .subtitle {
+      margin: 0 0 24px;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: #dff7f2;
+      color: var(--accent);
+      font-weight: 700;
+      margin-bottom: 24px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .item {
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #fbfdff;
+    }
+
+    .label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .value {
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    @media (max-width: 640px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      h1 {
+        font-size: 26px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="card">
+      <h1>{{.ServiceName}}</h1>
+      <p class="subtitle">Operational status page rendered by the gateway service.</p>
+
+      <div class="badge">Status: {{.Status}}</div>
+
+      <div class="grid">
+        <div class="item">
+          <span class="label">Environment</span>
+          <span class="value">{{.Environment}}</span>
+        </div>
+
+        <div class="item">
+          <span class="label">Version</span>
+          <span class="value">{{.Version}}</span>
+        </div>
+
+        <div class="item">
+          <span class="label">HTTP Address</span>
+          <span class="value">{{.HTTPAddress}}</span>
+        </div>
+
+        <div class="item">
+          <span class="label">HTTPS Enabled</span>
+          <span class="value">{{.HTTPSEnabled}}</span>
+        </div>
+
+        <div class="item">
+          <span class="label">Generated At</span>
+          <span class="value">{{.Now}}</span>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

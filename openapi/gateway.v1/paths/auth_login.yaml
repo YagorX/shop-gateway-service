@@ -1,0 +1,35 @@
+post:
+  tags: [Auth]
+  summary: Login and obtain tokens
+  operationId: login
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../../gateway.v1.yaml#/components/schemas/LoginRequest'
+  responses:
+    '200':
+      description: Login succeeded
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/LoginResponse'
+    '400':
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    '401':
+      description: Invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    '500':
+      description: Internal error
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'

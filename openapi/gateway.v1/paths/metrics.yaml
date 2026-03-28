@@ -1,0 +1,11 @@
+get:
+  tags: [System]
+  summary: Prometheus metrics endpoint
+  operationId: metrics
+  responses:
+    '200':
+      description: Prometheus metrics payload
+      content:
+        text/plain:
+          schema:
+            type: string

@@ -1,0 +1,17 @@
+get:
+  tags: [System]
+  summary: Readiness probe
+  operationId: ready
+  responses:
+    '200':
+      description: Service is ready
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/StatusResponse'
+    '503':
+      description: Service is not ready
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ReadyErrorResponse'

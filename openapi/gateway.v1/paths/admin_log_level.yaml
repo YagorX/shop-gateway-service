@@ -1,0 +1,36 @@
+get:
+  tags: [Admin]
+  summary: Get current log level
+  operationId: getLogLevel
+  responses:
+    '200':
+      description: Current log level
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/LogLevelResponse'
+    '500':
+      description: Logger is not initialized
+
+post:
+  tags: [Admin]
+  summary: Change current log level
+  operationId: setLogLevel
+  parameters:
+    - in: query
+      name: level
+      required: true
+      schema:
+        type: string
+        enum: [debug, info, warn, error]
+  responses:
+    '200':
+      description: Updated log level
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/LogLevelResponse'
+    '400':
+      description: Invalid log level
+    '500':
+      description: Logger is not initialized

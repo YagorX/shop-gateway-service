@@ -6,9 +6,14 @@ import (
 	"github.com/YagorX/shop-gateway/internal/domain"
 )
 
+type ProductStream interface {
+	Recv() (domain.Product, error)
+}
+
 type ProductRepository interface {
 	List(ctx context.Context, limit, offset int) ([]domain.Product, error)
 	GetByID(ctx context.Context, id string) (domain.Product, error)
+	Stream(ctx context.Context, limit, offset int) (ProductStream, error)
 }
 
 type AuthRepository interface {

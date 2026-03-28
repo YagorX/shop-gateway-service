@@ -1,0 +1,44 @@
+get:
+  tags: [Catalog]
+  summary: Get product by id
+  operationId: getProductById
+  security:
+    - bearerAuth: []
+  parameters:
+    - $ref: '../../gateway.v1.yaml#/components/parameters/XAppIdHeader'
+    - in: path
+      name: id
+      required: true
+      schema:
+        type: string
+  responses:
+    '200':
+      description: Product details
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/Product'
+    '400':
+      description: Invalid product id or invalid X-App-Id header
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    '401':
+      description: Missing or invalid bearer token
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    '404':
+      description: Product not found
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    '500':
+      description: Internal error
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'

@@ -1,0 +1,46 @@
+get:
+  tags: [Catalog]
+  summary: List products
+  operationId: listProducts
+  security:
+    - bearerAuth: []
+  parameters:
+    - $ref: '../../gateway.v1.yaml#/components/parameters/XAppIdHeader'
+    - in: query
+      name: limit
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+    - in: query
+      name: offset
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+  responses:
+    '200':
+      description: Product list
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ListProductsResponse'
+    '400':
+      description: Bad request or invalid X-App-Id header
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    '401':
+      description: Missing or invalid bearer token
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    '500':
+      description: Internal error
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'

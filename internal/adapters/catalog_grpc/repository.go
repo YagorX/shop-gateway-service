@@ -19,6 +19,10 @@ type CatalogAdapter struct {
 	client *clientcatalog.Client
 }
 
+type productStream struct {
+	stream catalogv1.CatalogService_StreamProductsClient
+}
+
 var _ gateway.ProductRepository = (*CatalogAdapter)(nil)
 
 func NewRepository(client *clientcatalog.Client) (*CatalogAdapter, error) {
@@ -70,6 +74,44 @@ func (r *CatalogAdapter) GetByID(ctx context.Context, id string) (domain.Product
 	}
 
 	return toDomainProduct(resp.GetProduct()), nil
+}
+
+func (r *CatalogAdapter) Stream(ctx context.Context, limit, offset int) (gateway.ProductStream, error) {
+	if r == nil || r.client == nil {
+		return nil, errors.New("catalog grpc repository is not initialized")
+	}
+	if limit < 0 || offset < 0 {
+		return nil, domain.ErrInvalidPagination
+	}
+	if limit > math.MaxUint32 || offset > math.MaxUint32 {
+		return nil, domain.ErrInvalidPagination
+	}
+
+	stream, err := r.client.StreamProducts(ctx, uint32(limit), uint32(offset))
+	if err != nil {
+		return nil, mapGRPCError(err)
+	}
+	if stream == nil {
+		return nil, errors.New("catalog grpc stream is nil")
+	}
+
+	return &productStream{stream: stream}, nil
+}
+
+func (s *productStream) Recv() (domain.Product, error) {
+	if s == nil || s.stream == nil {
+		return domain.Product{}, errors.New("catalog grpc product stream is not initialized")
+	}
+
+	msg, err := s.stream.Recv()
+	if err != nil {
+		return domain.Product{}, err
+	}
+	if msg == nil || msg.GetProduct() == nil {
+		return domain.Product{}, errors.New("catalog grpc stream message is empty")
+	}
+
+	return toDomainProduct(msg.GetProduct()), nil
 }
 
 func toDomainProduct(p *catalogv1.Product) domain.Product {

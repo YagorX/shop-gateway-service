@@ -1,0 +1,35 @@
+post:
+  tags: [Auth]
+  summary: Register new user
+  operationId: register
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../../gateway.v1.yaml#/components/schemas/RegisterRequest'
+  responses:
+    '200':
+      description: User registered
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/RegisterResponse'
+    '400':
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    '409':
+      description: User already exists
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    '500':
+      description: Internal error
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'

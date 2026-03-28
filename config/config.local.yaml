@@ -30,3 +30,7 @@ auth_tls:
 
 otlp:
   endpoint: localhost:4317
+
+swagger:
+  ui_path: web/swagger/index.html
+  spec_path: openapi/gateway.v1.yaml

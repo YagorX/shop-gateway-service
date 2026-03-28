@@ -231,6 +231,84 @@ func (service *GatewayService) GetProduct(ctx context.Context, id string) (domai
 	return product, nil
 }
 
+func (service *GatewayService) StreamProducts(ctx context.Context, limit, offset int) (ProductStream, error) {
+	const op = "service.gateway.StreamProducts"
+	startedAt := time.Now()
+	metrics := observability.MustMetrics()
+	ctx, span := otel.Tracer("shop-gateway/internal/service/gateway").Start(ctx, op)
+	defer span.End()
+
+	defer func() {
+		metrics.GatewayServiceRequestDuration.WithLabelValues("StreamProducts").Observe(time.Since(startedAt).Seconds())
+	}()
+
+	if err := service.ensureInitialized(); err != nil {
+		slog.Error("gateway service is not initialized", slog.String("op", op))
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("StreamProducts", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
+	}
+
+	originalLimit, originalOffset := limit, offset
+	limit, offset, err := normalizePagination(limit, offset)
+	if err != nil {
+		service.logger.Warn("invalid pagination",
+			slog.String("op", op),
+			slog.Int("limit", originalLimit),
+			slog.Int("offset", originalOffset),
+			slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+		)
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("StreamProducts", "invalid_argument").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
+	}
+
+	span.SetAttributes(
+		attribute.Int("product.limit", originalLimit),
+		attribute.Int("product.offset", originalOffset),
+		attribute.Int("product.effective_limit", limit),
+		attribute.Int("product.effective_offset", offset),
+	)
+
+	service.logger.Debug("stream products started",
+		slog.String("op", op),
+		slog.Int("requested_limit", originalLimit),
+		slog.Int("requested_offset", originalOffset),
+		slog.Int("effective_limit", limit),
+		slog.Int("effective_offset", offset),
+	)
+
+	stream, err := service.catalog_repository.Stream(ctx, limit, offset)
+	if err != nil {
+		service.logger.Error("repository stream failed",
+			slog.String("op", op),
+			slog.Int("limit", originalLimit),
+			slog.Int("effective_limit", limit),
+			slog.Int("offset", offset),
+			slog.String("error", err.Error()),
+			slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+		)
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("StreamProducts", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
+	}
+
+	service.logger.Info("stream products initialized",
+		slog.String("op", op),
+		slog.Int("limit", originalLimit),
+		slog.Int("effective_limit", limit),
+		slog.Int("offset", offset),
+		slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+	)
+	metrics.GatewayServiceRequestsTotal.WithLabelValues("StreamProducts", "success").Inc()
+	span.SetStatus(codes.Ok, "success")
+
+	return stream, nil
+}
+
 func (service *GatewayService) Register(ctx context.Context, username, email, password string) (string, error) {
 	const op = "service.gateway.Register"
 	startedAt := time.Now()
