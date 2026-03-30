@@ -28,7 +28,7 @@
 Client
   -> HTTPS / JSON / SSE
 shop-gateway
-  -> gRPC -> shop-catalog-service
+  -> gRPC -> shop-proxy -> shop-catalog-service
   -> gRPC mTLS -> shop-auth
 ```
 
@@ -38,6 +38,7 @@ shop-gateway
 2. `shop-catalog-service` отдает unary и server-streaming gRPC;
 3. `shop-gateway` адаптирует внутренний gRPC stream во внешний SSE endpoint;
 4. `shop-auth` отвечает за JWT-based auth flow, а `shop-gateway` применяет его через middleware.
+5. Для задания со звездочкой между `shop-gateway` и `shop-catalog-service` добавлен отдельный `shop-proxy`, который прозрачно проксирует gRPC/TCP-трафик, считает байты в обе стороны и позволяет вносить управляемую задержку.
 
 ## 3. Что реализовано по требованиям
 
@@ -222,15 +223,58 @@ Protected routes:
 2. показана адаптация внутреннего gRPC streaming во внешний HTTP streaming;
 3. в проекте появился production-like паттерн: внешний HTTP/SSE и внутренний gRPC streaming.
 
+### 3.7 Задание со звездочкой: proxy-service
+
+Что сделано:
+
+1. Добавлен отдельный сервис `shop-proxy`.
+2. `shop-proxy` встроен в маршрут `shop-gateway -> shop-proxy -> shop-catalog-service`.
+3. Сервис поднимает два порта:
+   - `:9095` для прозрачного TCP/gRPC proxy;
+   - `:8085` для admin/metrics HTTP API.
+4. Proxy считает:
+   - общее количество TCP соединений;
+   - количество активных соединений;
+   - байты `client -> upstream`;
+   - байты `upstream -> client`;
+   - ошибки copy loop.
+5. Для proxy добавлен fault injection через управляемый `delay`.
+6. Для admin endpoints добавлена отдельная auth middleware:
+   - читает `Authorization: Bearer <token>`;
+   - читает `X-App-Id`;
+   - валидирует токен через `shop-auth`;
+   - дополнительно проверяет `IsAdmin`.
+7. `shop-proxy` подключен в `docker-compose`, а Prometheus скрейпит его `/metrics`.
+
+Где смотреть в коде:
+
+1. `shop-proxy/internal/app/tcp/app.go` — TCP proxy runtime, copy loop, delay, traffic metrics.
+2. `shop-proxy/internal/observability/metrics.go` — proxy-метрики (`proxy_tcp_connections_*`, `proxy_traffic_bytes_*`, `proxy_faults_delay_milliseconds`).
+3. `shop-proxy/internal/transport/http/router.go` — public/admin HTTP routes.
+4. `shop-proxy/internal/transport/http/handlers/admins.go` — `GET /admin/state`, `POST /admin/faults/delay`, `POST /admin/reset`.
+5. `shop-proxy/internal/transport/http/middleware/auth.go` — admin auth middleware.
+6. `shop-proxy/internal/client/grpc/auth/client.go` — gRPC client к `shop-auth`.
+7. `shop-proxy/internal/adapters/auth_grpc/repository.go` — адаптер auth-контракта для middleware.
+8. `shop-proxy/config/config.docker.yaml` — docker-конфиг proxy-service.
+9. `shop-platform/deploy/docker-compose.yml` — подключение `proxy-service` в compose-стенд.
+10. `shop-platform/infra/prometheus/prometheus.yml` — scrape target для proxy-service.
+11. `shop-gateway/config/config.docker.yaml` — перевод gateway на `proxy-service:9095`.
+
+Что получилось:
+
+1. Задание со звездочкой выполнено отдельным микросервисом, а не встроено в существующий сервис скрыто.
+2. Трафик между `shop-gateway` и `shop-catalog-service` теперь наблюдаем на уровне байтов и соединений.
+3. Через admin API можно управляемо ухудшать канал и демонстрировать влияние на `GET /products` и `GET /products/stream`.
+4. В проекте появился еще один production-like паттерн: отдельный network proxy с observability и fault injection.
+
 ## 4. Что пока остается улучшить
 
-На момент оформления отчета еще не закрыты до конца три пункта:
+На момент оформления отчета еще не закрыты до конца два пункта:
 
 1. автоматизированные расширенные integration tests для HTTP API;
 2. отдельный оформленный блок сравнения `HTTP+JSON vs gRPC`;
-3. задание со звездочкой про proxy-service.
 
-Это не скрывается, а фиксируется как следующий этап развития проекта.
+Задание со звездочкой про proxy-service уже реализовано и встроено в compose-стенд.
 
 ## 5. Пошаговая инструкция проверки
 
@@ -313,6 +357,47 @@ go run ./cmd/catalog-client
 2. клиент получает элементы из `StreamProducts` по одному;
 3. в конце stream корректно завершается.
 
+### 5.7 Проверить proxy-service
+
+Проверка health/metrics:
+
+```bash
+curl http://localhost:8085/health
+curl http://localhost:8085/ready
+curl http://localhost:8085/metrics
+```
+
+Проверка admin state:
+
+```bash
+curl -H "Authorization: Bearer <access_token>" \
+  -H "X-App-Id: 1" \
+  http://localhost:8085/admin/state
+```
+
+Включить задержку:
+
+```bash
+curl -X POST -H "Authorization: Bearer <access_token>" \
+  -H "X-App-Id: 1" \
+  "http://localhost:8085/admin/faults/delay?ms=500"
+```
+
+Сбросить задержку:
+
+```bash
+curl -X POST -H "Authorization: Bearer <access_token>" \
+  -H "X-App-Id: 1" \
+  http://localhost:8085/admin/reset
+```
+
+Ожидаемый результат:
+
+1. admin routes недоступны без токена или без admin-role;
+2. `delay_ms` меняется через admin API;
+3. в `/metrics` видны `proxy_tcp_connections_total`, `proxy_traffic_bytes_upstream_total`, `proxy_traffic_bytes_downstream_total`;
+4. при включенном `delay` ответы gateway на product endpoints становятся заметно медленнее.
+
 ## 6. Текстовый протокол проверок
 
 Фактический сценарий smoke-check:
@@ -326,6 +411,7 @@ go run ./cmd/catalog-client
 7. Проверены негативные сценарии без токена и без `X-App-Id`.
 8. Проверен `GET /products/stream` через SSE.
 9. Отдельно проверен gRPC server streaming на стороне `shop-catalog-service`.
+10. Проверен `shop-proxy`: health, metrics, admin state, включение и сброс `delay`.
 
 ## 7. Куда приложить скриншоты
 
@@ -354,12 +440,19 @@ go run ./cmd/catalog-client
 7. `images/07-products-stream-sse.png` — SSE поток `/products/stream`
 8. `images/08-catalog-stream-client.png` — gRPC stream в `catalog-client`
 
+Для задания со звездочкой:
+
+1. `images/09-proxy-metrics.png` — `/metrics` proxy-service
+2. `images/10-proxy-admin-state.png` — `GET /admin/state`
+3. `images/11-proxy-delay-set.png` — `POST /admin/faults/delay?ms=500`
+4. `images/12-proxy-delay-reset.png` — `POST /admin/reset`
+
 Если хочешь усилить отчет, можно добавить еще:
 
-1. `images/09-products-no-token.png` — отказ без токена
-2. `images/10-products-no-app-id.png` — отказ без `X-App-Id`
-3. `images/11-swagger-authorize.png` — окно `Authorize` в Swagger
-4. `images/12-openapi-spec.png` — загрузка spec через `/swagger/spec/gateway.v1.yaml`
+1. `images/13-products-no-token.png` — отказ без токена
+2. `images/14-products-no-app-id.png` — отказ без `X-App-Id`
+3. `images/15-swagger-authorize.png` — окно `Authorize` в Swagger
+4. `images/16-openapi-spec.png` — загрузка spec через `/swagger/spec/gateway.v1.yaml`
 
 ## 8. Самооценка результата
 
@@ -369,9 +462,10 @@ go run ./cmd/catalog-client
 2. middleware, Swagger, status page и streaming собраны в единую архитектуру;
 3. внутри системы показан production-like паттерн: внешний HTTP + внутренний gRPC;
 4. отдельно продемонстрирована адаптация `gRPC stream -> SSE`.
+5. Задание со звездочкой реализовано отдельным `shop-proxy`, который добавляет network-level observability и fault injection без изменения бизнес-логики `shop-gateway` и `shop-catalog-service`.
 
 Что еще стоит улучшить:
 
 1. добавить автоматизированные integration tests на HTTP API;
 2. оформить сравнение `HTTP+JSON vs gRPC` отдельным разделом с замерами;
-3. при необходимости расширить streaming-контракт и добавить дополнительные stream-метрики.
+3. при необходимости расширить `shop-proxy` новыми видами fault injection, например bandwidth limit или jitter.

@@ -16,7 +16,7 @@ http_tls:
 
 
 catalog_grpc:
-  addr: catalog-service:9091
+  addr: proxy-service:9095
   timeout: 3s
 
 auth_grpc:
