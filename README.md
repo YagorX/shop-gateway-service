@@ -24,6 +24,7 @@
    - `GET /status`
    - `GET/POST /admin/log-level`
    - `GET /swagger/`
+   - `GET /redoc/`
 4. Проксировать внутренние вызовы в:
    - `catalog-service` по gRPC
    - `auth-service` по gRPC mTLS
@@ -96,7 +97,7 @@
 6. `auth_grpc.timeout` — таймаут auth gRPC вызовов
 7. `auth_tls.*` — CA, `server_name` и client cert/key для mTLS
 8. `otlp.endpoint` — OTLP endpoint для traces
-9. `swagger.*` — пути к Swagger UI и OpenAPI spec
+9. `swagger.*` — пути к Swagger UI, ReDoc и OpenAPI spec
 10. `template_path` — путь к HTML шаблону status page
 
 Локальная конфигурация по умолчанию:
@@ -125,6 +126,7 @@ curl http://127.0.0.1:8083/ready
 curl http://127.0.0.1:8083/metrics
 curl http://127.0.0.1:8083/status
 curl http://127.0.0.1:8083/swagger/
+curl http://127.0.0.1:8083/redoc/
 curl "http://127.0.0.1:8083/products?limit=5&offset=0"
 curl http://127.0.0.1:8083/products/prod-001
 ```
@@ -156,6 +158,7 @@ curl -k https://localhost:8083/ready
 curl -k https://localhost:8083/metrics
 curl -k https://localhost:8083/status
 curl -k https://localhost:8083/swagger/
+curl -k https://localhost:8083/redoc/
 curl -k https://localhost:8083/products
 ```
 
@@ -308,6 +311,7 @@ HTML страница рендерится через `html/template` и пок�
 Swagger UI доступен по:
 
 1. `GET /swagger/`
+2. `GET /redoc/`
 
 OpenAPI spec раздается по:
 

@@ -8,18 +8,20 @@ import (
 )
 
 type SwaggerHandler struct {
-	UIPath   string
-	SpecPath string
+	UIPath    string
+	RedocPath string
+	SpecPath  string
 }
 
-func NewSwaggerHandler(uiPath, specPath string) *SwaggerHandler {
+func NewSwaggerHandler(uiPath, redocPath, specPath string) *SwaggerHandler {
 	if specPath == "" {
 		return nil
 	}
 
 	return &SwaggerHandler{
-		UIPath:   uiPath,
-		SpecPath: specPath,
+		UIPath:    uiPath,
+		RedocPath: redocPath,
+		SpecPath:  specPath,
 	}
 }
 
@@ -46,6 +48,31 @@ func (swagger *SwaggerHandler) UI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.ServeFile(w, r, swagger.UIPath)
+}
+
+func (swagger *SwaggerHandler) Redoc(w http.ResponseWriter, r *http.Request) {
+	startedAt := time.Now()
+	metrics := observability.MustMetrics()
+	status := "200"
+
+	defer func() {
+		metrics.GatewayHTTPRequestDuration.WithLabelValues(r.Method, "/redoc/").Observe(time.Since(startedAt).Seconds())
+		metrics.GatewayHTTPRequestsTotal.WithLabelValues(r.Method, "/redoc/", status).Inc()
+	}()
+
+	if r.Method != http.MethodGet {
+		status = "405"
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+
+	if swagger == nil || swagger.RedocPath == "" {
+		status = "500"
+		writeError(w, http.StatusInternalServerError, "redoc_path_is_empty", "ReDoc path is empty")
+		return
+	}
+
+	http.ServeFile(w, r, swagger.RedocPath)
 }
 
 func (swagger *SwaggerHandler) OpenAPI(w http.ResponseWriter, r *http.Request) {

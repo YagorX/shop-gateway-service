@@ -27,8 +27,9 @@ type Config struct {
 }
 
 type SwaggerConfig struct {
-	UIPath   string `yaml:"ui_path" env-default:""`
-	SpecPath string `yaml:"spec_path" env-default:""`
+	UIPath    string `yaml:"ui_path" env-default:""`
+	RedocPath string `yaml:"redoc_path" env-default:""`
+	SpecPath  string `yaml:"spec_path" env-default:""`
 }
 
 type HTTPConfig struct {

@@ -1,0 +1,33 @@
+get:
+  tags: [System]
+  summary: Render gateway status page
+  description: >
+    Returns an HTML status page rendered from a template with runtime metadata
+    such as service name, environment, version and current timestamp.
+  operationId: statusPage
+  responses:
+    '200':
+      description: Rendered HTML status page
+      content:
+        text/html:
+          schema:
+            type: string
+            example: |
+              <!doctype html>
+              <html>
+                <body>gateway-service ready</body>
+              </html>
+    '405':
+      description: Method not allowed
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: method not allowed
+    '500':
+      description: Status template is not configured or failed to render
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: failed to render status page

@@ -1,4 +1,4 @@
-﻿package v1
+package v1
 
 import (
 	"log/slog"
@@ -16,6 +16,7 @@ type RouterDeps struct {
 	ProductService     contracts.ProductService
 	AuthService        contracts.AuthService
 	SwaggerHandler     *handlers.SwaggerHandler
+	SwaggerSpecDir     string
 	StatusHandler      *handlers.StatusHandler
 }
 
@@ -63,15 +64,20 @@ func NewRouter(deps RouterDeps) http.Handler {
 
 	if deps.SwaggerHandler != nil {
 		mux.HandleFunc("/swagger/", deps.SwaggerHandler.UI)
+		mux.HandleFunc("/redoc/", deps.SwaggerHandler.Redoc)
 		mux.HandleFunc("/swagger/openapi.yaml", deps.SwaggerHandler.OpenAPI)
 	}
 
-	mux.Handle(
-		"/swagger/spec/",
-		http.StripPrefix("/swagger/spec/", http.FileServer(http.Dir("/app/openapi"))),
-	)
+	if deps.SwaggerSpecDir != "" {
+		mux.Handle(
+			"/swagger/spec/",
+			http.StripPrefix("/swagger/spec/", http.FileServer(http.Dir(deps.SwaggerSpecDir))),
+		)
+	}
 
-	mux.HandleFunc("/status", deps.StatusHandler.Page)
+	if deps.StatusHandler != nil && deps.StatusHandler.TemplatePath != "" {
+		mux.HandleFunc("/status", deps.StatusHandler.Page)
+	}
 
 	return middleware.Chain(mux,
 		middleware.Recovery(logger))

@@ -3,12 +3,11 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Shop Gateway API</title>
-  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist/swagger-ui.css" />
+  <title>Shop Gateway API ReDoc</title>
   <style>
     body {
       margin: 0;
-      background: #f5f7fb;
+      background: #f8fafc;
     }
 
     .docs-nav {
@@ -30,19 +29,10 @@
 <body>
   <div class="docs-nav">
     <strong>Shop Gateway API</strong>
-    <a href="/redoc/">ReDoc</a>
+    <a href="/swagger/">Swagger UI</a>
     <a href="/swagger/spec/gateway.v1.yaml">OpenAPI YAML</a>
   </div>
-  <div id="swagger-ui"></div>
-
-  <script src="https://unpkg.com/swagger-ui-dist/swagger-ui-bundle.js"></script>
-  <script>
-    window.onload = () => {
-      window.ui = SwaggerUIBundle({
-        url: "/swagger/spec/gateway.v1.yaml",
-        dom_id: "#swagger-ui"
-      });
-    };
-  </script>
+  <redoc spec-url="/swagger/spec/gateway.v1.yaml"></redoc>
+  <script src="https://unpkg.com/redoc@2.1.5/bundles/redoc.standalone.js"></script>
 </body>
 </html>

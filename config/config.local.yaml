@@ -33,4 +33,7 @@ otlp:
 
 swagger:
   ui_path: web/swagger/index.html
+  redoc_path: web/redoc/index.html
   spec_path: openapi/gateway.v1.yaml
+
+template_path: web/status/index.html

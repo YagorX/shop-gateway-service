@@ -1,0 +1,58 @@
+get:
+  tags: [Catalog]
+  summary: Stream products as server-sent events
+  description: >
+    Streams products from the catalog as SSE events. The gateway emits
+    `event: product` for each item and finishes with `event: end` when the
+    upstream stream is completed.
+  operationId: streamProducts
+  security:
+    - bearerAuth: []
+  parameters:
+    - $ref: '../../gateway.v1.yaml#/components/parameters/XAppIdHeader'
+    - in: query
+      name: limit
+      required: false
+      description: Maximum number of products to stream.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+    - in: query
+      name: offset
+      required: false
+      description: Number of products to skip before streaming starts.
+      schema:
+        type: integer
+        minimum: 0
+  responses:
+    '200':
+      description: SSE product stream
+      content:
+        text/event-stream:
+          schema:
+            type: string
+            example: |
+              event: product
+              data: {"ID":"prod-001","SKU":"SKU-001","Name":"Coffee Mug","Description":"Ceramic mug","PriceCents":1999,"Currency":"USD","Stock":10,"Active":true}
+
+              event: end
+              data: {"status":"completed"}
+    '400':
+      description: Bad request or invalid X-App-Id header
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    '401':
+      description: Missing or invalid bearer token
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    '500':
+      description: Internal error
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'

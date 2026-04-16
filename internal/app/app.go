@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"time"
 
 	auth_adapter "github.com/YagorX/shop-gateway/internal/adapters/auth_grpc"
@@ -89,7 +90,11 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		return nil, fmt.Errorf("create gateway_service: %w", err)
 	}
 
-	swaggerHandler := handlershttp.NewSwaggerHandler(cfg.Swagger.UIPath, cfg.Swagger.SpecPath)
+	swaggerHandler := handlershttp.NewSwaggerHandler(cfg.Swagger.UIPath, cfg.Swagger.RedocPath, cfg.Swagger.SpecPath)
+	swaggerSpecDir := ""
+	if cfg.Swagger.SpecPath != "" {
+		swaggerSpecDir = filepath.Dir(cfg.Swagger.SpecPath)
+	}
 	statusHandler := handlershttp.NewStatusHandler(cfg.TemplatePath, handlershttp.StatusPageData{
 		ServiceName:  cfg.ServiceName,
 		Environment:  cfg.Env,
@@ -124,6 +129,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		ProductService: gatewaySrv,
 		AuthService:    gatewaySrv,
 		SwaggerHandler: swaggerHandler,
+		SwaggerSpecDir: swaggerSpecDir,
 		StatusHandler:  statusHandler,
 	})
 

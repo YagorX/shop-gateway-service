@@ -2,7 +2,10 @@ openapi: 3.0.3
 info:
   title: Shop Gateway API
   version: 1.0.0
-  description: Public HTTP API for the mini-shop gateway.
+  description: >
+    Public HTTP API for the mini-shop gateway. The gateway exposes catalog,
+    authentication and operational endpoints and publishes an OpenAPI contract
+    that can be explored through Swagger UI and ReDoc.
 
 servers:
   - url: /
@@ -10,9 +13,13 @@ servers:
 
 tags:
   - name: System
+    description: Liveness, readiness, metrics and runtime status endpoints.
   - name: Catalog
+    description: Product retrieval endpoints exposed by the gateway.
   - name: Auth
+    description: Registration, login, token validation and logout operations.
   - name: Admin
+    description: Runtime administration endpoints.
 
 paths:
   /health:
@@ -21,10 +28,14 @@ paths:
     $ref: './gateway.v1/paths/ready.yaml'
   /metrics:
     $ref: './gateway.v1/paths/metrics.yaml'
+  /status:
+    $ref: './gateway.v1/paths/status.yaml'
   /admin/log-level:
     $ref: './gateway.v1/paths/admin_log_level.yaml'
   /products:
     $ref: './gateway.v1/paths/products.yaml'
+  /products/stream:
+    $ref: './gateway.v1/paths/products_stream.yaml'
   /products/{id}:
     $ref: './gateway.v1/paths/products_by_id.yaml'
   /auth/register:
