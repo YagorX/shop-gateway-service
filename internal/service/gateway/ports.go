@@ -24,3 +24,11 @@ type AuthRepository interface {
 	Logout(ctx context.Context, refreshToken string, appID int64, deviceID string) error
 	IsAdmin(ctx context.Context, userUUID string) (bool, error)
 }
+
+type CartRepository interface {
+	AddItem(ctx context.Context, userID, productID string, quantity int32, priceSnapshot int64) error
+	RemoveItem(ctx context.Context, userID string, productID string) error
+	UpdateItem(ctx context.Context, userID string, productID string, quantity int32) error
+	GetCart(ctx context.Context, userID string) (*domain.Cart, error)
+	ClearCart(ctx context.Context, userID string) error
+}

@@ -15,6 +15,7 @@ type RouterDeps struct {
 	ReadinessChecker   contracts.ReadinessChecker
 	ProductService     contracts.ProductService
 	AuthService        contracts.AuthService
+	CartService        contracts.CartService
 	SwaggerHandler     *handlers.SwaggerHandler
 	SwaggerSpecDir     string
 	StatusHandler      *handlers.StatusHandler
@@ -32,6 +33,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 	adminHandler := handlers.NewAdminHandler(deps.LogLevelController)
 	productsHandler := handlers.NewProductsHandler(deps.ProductService)
 	authHandler := handlers.NewAuthHandler(deps.AuthService)
+	cartHandler := handlers.NewCartHandler(deps.CartService, deps.ProductService)
 
 	mux.HandleFunc("/health", healthHandler.Health)
 	mux.HandleFunc("/ready", healthHandler.Ready)
@@ -50,6 +52,31 @@ func NewRouter(deps RouterDeps) http.Handler {
 	mux.Handle(
 		"/products/",
 		authMiddleware(http.HandlerFunc(productsHandler.GetByID)),
+	)
+
+	mux.Handle(
+		"/cart",
+		authMiddleware(http.HandlerFunc(cartHandler.GetCart)),
+	)
+
+	mux.Handle(
+		"/cart/items",
+		authMiddleware(http.HandlerFunc(cartHandler.AddItem)),
+	)
+
+	mux.Handle(
+		"/cart/items/update",
+		authMiddleware(http.HandlerFunc(cartHandler.UpdateItem)),
+	)
+
+	mux.Handle(
+		"/cart/items/remove",
+		authMiddleware(http.HandlerFunc(cartHandler.RemoveItem)),
+	)
+
+	mux.Handle(
+		"/cart/clear",
+		authMiddleware(http.HandlerFunc(cartHandler.ClearCart)),
 	)
 
 	mux.HandleFunc("/auth/register", authHandler.Register)

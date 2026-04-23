@@ -34,6 +34,10 @@ auth_tls:
 otlp:
   endpoint: jaeger:4317
 
+cart_grpc:
+  addr: cart-service:9092
+  timeout: 3s
+
 swagger:
   ui_path: /app/web/swagger/index.html
   redoc_path: /app/web/redoc/index.html

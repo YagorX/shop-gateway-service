@@ -41,6 +41,14 @@ type AuthService interface {
 	IsAdmin(ctx context.Context, userUUID string) (bool, error)
 }
 
+type CartService interface {
+	AddItem(ctx context.Context, userID, productID string, quantity int32, priceSnapshot int64) error
+	RemoveItem(ctx context.Context, userID string, productID string) error
+	UpdateItem(ctx context.Context, userID string, productID string, quantity int32) error
+	GetCart(ctx context.Context, userID string) (*domain.Cart, error)
+	ClearCart(ctx context.Context, userID string) error
+}
+
 type SwaggerService interface {
 	UI(w http.ResponseWriter, r *http.Request)
 	OpenAPI(w http.ResponseWriter, r *http.Request)

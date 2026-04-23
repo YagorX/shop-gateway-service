@@ -31,6 +31,10 @@ auth_tls:
 otlp:
   endpoint: localhost:4317
 
+cart_grpc:
+  addr: cart-service:9092
+  timeout: 3s
+
 swagger:
   ui_path: web/swagger/index.html
   redoc_path: web/redoc/index.html

@@ -165,6 +165,12 @@ func (h *ProductsHandler) StreamProducts(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Connection", "keep-alive")
 
 	for {
+		select {
+		case <-r.Context().Done():
+			return
+		default:
+		}
+
 		product, err := stream.Recv()
 		if err != nil {
 			if err == io.EOF {

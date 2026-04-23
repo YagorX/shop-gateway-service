@@ -22,6 +22,7 @@ type Config struct {
 	AuthGRPC     GRPCConfig    `yaml:"auth_grpc"`
 	OTLP         OTLPConfig    `yaml:"otlp"`
 	AuthTLS      TLSConfig     `yaml:"auth_tls"`
+	CartGRPC     GRPCConfig    `yaml:"cart_grpc"`
 	Swagger      SwaggerConfig `yaml:"swagger"`
 	TemplatePath string        `yaml:"template_path" env-default:""`
 }
@@ -154,6 +155,13 @@ func (c *Config) Validate() error {
 		if c.HTTPTLS.KeyFile == "" {
 			return fmt.Errorf("http_tls.key_file is required when http_tls.enabled=true")
 		}
+	}
+
+	if c.CartGRPC.Addr == "" {
+		return fmt.Errorf("cart_grpc.addr is required")
+	}
+	if c.CartGRPC.Timeout <= 0 {
+		return fmt.Errorf("cart_grpc.timeout must be > 0")
 	}
 
 	return nil

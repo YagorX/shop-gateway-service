@@ -30,19 +30,23 @@ type GatewayService struct {
 	logger             *slog.Logger
 	catalog_repository ProductRepository
 	auth_repository    AuthRepository
+	cart_repository    CartRepository
 }
 
-func NewGatewayService(logger *slog.Logger, catalog_repository ProductRepository, auth_repository AuthRepository) (*GatewayService, error) {
+func NewGatewayService(logger *slog.Logger, catalog_repository ProductRepository, auth_repository AuthRepository, cart_repository CartRepository) (*GatewayService, error) {
 	if logger == nil {
 		return nil, errors.New("logger is empty")
 	}
 	if catalog_repository == nil {
-		return nil, errors.New("recatalog_repository is empty")
+		return nil, errors.New("catalog_repository is empty")
 	}
 	if auth_repository == nil {
 		return nil, errors.New("auth_repository is empty")
 	}
-	return &GatewayService{logger: logger, catalog_repository: catalog_repository, auth_repository: auth_repository}, nil
+	if cart_repository == nil {
+		return nil, errors.New("cart_repository is empty")
+	}
+	return &GatewayService{logger: logger, catalog_repository: catalog_repository, auth_repository: auth_repository, cart_repository: cart_repository}, nil
 }
 
 func (service *GatewayService) ListProducts(ctx context.Context, limit, offset int) ([]domain.Product, error) {
@@ -659,8 +663,281 @@ func (service *GatewayService) IsAdmin(ctx context.Context, userUUID string) (bo
 	return isAdmin, nil
 }
 
+func (service *GatewayService) AddItem(ctx context.Context, userID, productID string, quantity int32, priceSnapshot int64) error {
+	const op = "service.gateway.AddItem"
+	startedAt := time.Now()
+	metrics := observability.MustMetrics()
+	ctx, span := otel.Tracer("shop-gateway/internal/service/gateway").Start(ctx, op)
+	defer span.End()
+
+	defer func() {
+		metrics.GatewayServiceRequestDuration.WithLabelValues("AddItem").Observe(time.Since(startedAt).Seconds())
+	}()
+
+	if err := service.ensureInitialized(); err != nil {
+		service.logger.Error("gateway service is not initialized", slog.String("op", op))
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("AddItem", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+
+	span.SetAttributes(attribute.String("cart.user_id", userID))
+
+	service.logger.Info("add item started",
+		slog.String("op", op),
+		slog.String("user_id", userID),
+	)
+
+	err := service.cart_repository.AddItem(ctx, userID, productID, quantity, priceSnapshot)
+	if err != nil {
+		service.logger.Error("add item failed",
+			slog.String("op", op),
+			slog.String("user_id", userID),
+			slog.String("error", err.Error()),
+			slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+		)
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("AddItem", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+
+	service.logger.Info("add item completed",
+		slog.String("op", op),
+		slog.String("user_id", userID),
+		slog.String("product_id", productID),
+		slog.Int64("quantity", int64(quantity)),
+		slog.Int64("price_snapshot", priceSnapshot),
+		slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+	)
+	metrics.GatewayServiceRequestsTotal.WithLabelValues("AddItem", "success").Inc()
+	span.SetAttributes(attribute.Bool("cart.item_added", true))
+	span.SetStatus(codes.Ok, "success")
+
+	return nil
+}
+
+func (service *GatewayService) GetCart(ctx context.Context, userID string) (*domain.Cart, error) {
+	const op = "service.gateway.GetCart"
+	startedAt := time.Now()
+	metrics := observability.MustMetrics()
+	ctx, span := otel.Tracer("shop-gateway/internal/service/gateway").Start(ctx, op)
+	defer span.End()
+
+	defer func() {
+		metrics.GatewayServiceRequestDuration.WithLabelValues("GetCart").Observe(time.Since(startedAt).Seconds())
+	}()
+
+	if err := service.ensureInitialized(); err != nil {
+		service.logger.Error("gateway service is not initialized", slog.String("op", op))
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("GetCart", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
+	}
+
+	span.SetAttributes(attribute.String("cart.user_id", userID))
+
+	service.logger.Info("get cart started",
+		slog.String("op", op),
+		slog.String("user_id", userID),
+	)
+
+	cart, err := service.cart_repository.GetCart(ctx, userID)
+	if err != nil {
+		service.logger.Error("get cart failed",
+			slog.String("op", op),
+			slog.String("user_id", userID),
+			slog.String("error", err.Error()),
+			slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+		)
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("GetCart", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
+	}
+
+	service.logger.Info("get cart completed",
+		slog.String("op", op),
+		slog.String("user_id", userID),
+		slog.Int("items_count", len(cart.Items)),
+		slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+	)
+	metrics.GatewayServiceRequestsTotal.WithLabelValues("GetCart", "success").Inc()
+	span.SetAttributes(attribute.Int("cart.items_count", len(cart.Items)))
+	span.SetStatus(codes.Ok, "success")
+
+	return cart, nil
+}
+
+func (service *GatewayService) RemoveItem(ctx context.Context, userID string, productID string) error {
+	const op = "service.gateway.RemoveItem"
+	startedAt := time.Now()
+	metrics := observability.MustMetrics()
+	ctx, span := otel.Tracer("shop-gateway/internal/service/gateway").Start(ctx, op)
+	defer span.End()
+
+	defer func() {
+		metrics.GatewayServiceRequestDuration.WithLabelValues("RemoveItem").Observe(time.Since(startedAt).Seconds())
+	}()
+
+	if err := service.ensureInitialized(); err != nil {
+		service.logger.Error("gateway service is not initialized", slog.String("op", op))
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("RemoveItem", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+
+	span.SetAttributes(
+		attribute.String("cart.user_id", userID),
+		attribute.String("cart.product_id", productID),
+	)
+
+	service.logger.Info("remove item started",
+		slog.String("op", op),
+		slog.String("user_id", userID),
+		slog.String("product_id", productID),
+	)
+
+	if err := service.cart_repository.RemoveItem(ctx, userID, productID); err != nil {
+		service.logger.Error("remove item failed",
+			slog.String("op", op),
+			slog.String("user_id", userID),
+			slog.String("product_id", productID),
+			slog.String("error", err.Error()),
+			slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+		)
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("RemoveItem", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+
+	service.logger.Info("remove item completed",
+		slog.String("op", op),
+		slog.String("user_id", userID),
+		slog.String("product_id", productID),
+		slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+	)
+	metrics.GatewayServiceRequestsTotal.WithLabelValues("RemoveItem", "success").Inc()
+	span.SetStatus(codes.Ok, "success")
+
+	return nil
+}
+
+func (service *GatewayService) UpdateItem(ctx context.Context, userID string, productID string, quantity int32) error {
+	const op = "service.gateway.UpdateItem"
+	startedAt := time.Now()
+	metrics := observability.MustMetrics()
+	ctx, span := otel.Tracer("shop-gateway/internal/service/gateway").Start(ctx, op)
+	defer span.End()
+
+	defer func() {
+		metrics.GatewayServiceRequestDuration.WithLabelValues("UpdateItem").Observe(time.Since(startedAt).Seconds())
+	}()
+
+	if err := service.ensureInitialized(); err != nil {
+		service.logger.Error("gateway service is not initialized", slog.String("op", op))
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("UpdateItem", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+
+	span.SetAttributes(
+		attribute.String("cart.user_id", userID),
+		attribute.String("cart.product_id", productID),
+		attribute.Int("cart.quantity", int(quantity)),
+	)
+
+	service.logger.Info("update item started",
+		slog.String("op", op),
+		slog.String("user_id", userID),
+		slog.String("product_id", productID),
+		slog.Int("quantity", int(quantity)),
+	)
+
+	if err := service.cart_repository.UpdateItem(ctx, userID, productID, quantity); err != nil {
+		service.logger.Error("update item failed",
+			slog.String("op", op),
+			slog.String("user_id", userID),
+			slog.String("product_id", productID),
+			slog.String("error", err.Error()),
+			slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+		)
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("UpdateItem", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+
+	service.logger.Info("update item completed",
+		slog.String("op", op),
+		slog.String("user_id", userID),
+		slog.String("product_id", productID),
+		slog.Int("quantity", int(quantity)),
+		slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+	)
+	metrics.GatewayServiceRequestsTotal.WithLabelValues("UpdateItem", "success").Inc()
+	span.SetStatus(codes.Ok, "success")
+
+	return nil
+}
+
+func (service *GatewayService) ClearCart(ctx context.Context, userID string) error {
+	const op = "service.gateway.ClearCart"
+	startedAt := time.Now()
+	metrics := observability.MustMetrics()
+	ctx, span := otel.Tracer("shop-gateway/internal/service/gateway").Start(ctx, op)
+	defer span.End()
+
+	defer func() {
+		metrics.GatewayServiceRequestDuration.WithLabelValues("ClearCart").Observe(time.Since(startedAt).Seconds())
+	}()
+
+	if err := service.ensureInitialized(); err != nil {
+		service.logger.Error("gateway service is not initialized", slog.String("op", op))
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("ClearCart", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+
+	span.SetAttributes(attribute.String("cart.user_id", userID))
+
+	service.logger.Info("clear cart started",
+		slog.String("op", op),
+		slog.String("user_id", userID),
+	)
+
+	if err := service.cart_repository.ClearCart(ctx, userID); err != nil {
+		service.logger.Error("clear cart failed",
+			slog.String("op", op),
+			slog.String("user_id", userID),
+			slog.String("error", err.Error()),
+			slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+		)
+		metrics.GatewayServiceRequestsTotal.WithLabelValues("ClearCart", "error").Inc()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+
+	service.logger.Info("clear cart completed",
+		slog.String("op", op),
+		slog.String("user_id", userID),
+		slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+	)
+	metrics.GatewayServiceRequestsTotal.WithLabelValues("ClearCart", "success").Inc()
+	span.SetStatus(codes.Ok, "success")
+
+	return nil
+}
+
 func (service *GatewayService) ensureInitialized() error {
-	if service == nil || service.catalog_repository == nil || service.auth_repository == nil || service.logger == nil {
+	if service == nil || service.catalog_repository == nil || service.auth_repository == nil || service.cart_repository == nil || service.logger == nil {
 		return errServiceNotInitialized
 	}
 	return nil

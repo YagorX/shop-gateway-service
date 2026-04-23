@@ -10,9 +10,11 @@ import (
 	"time"
 
 	auth_adapter "github.com/YagorX/shop-gateway/internal/adapters/auth_grpc"
+	cart_adapter "github.com/YagorX/shop-gateway/internal/adapters/cart_grpc"
 	catalog_adapter "github.com/YagorX/shop-gateway/internal/adapters/catalog_grpc"
 	httpapp "github.com/YagorX/shop-gateway/internal/app/httpapp"
 	auth_client "github.com/YagorX/shop-gateway/internal/client/grpc/auth"
+	cart_client "github.com/YagorX/shop-gateway/internal/client/grpc/cart"
 	catalog_client "github.com/YagorX/shop-gateway/internal/client/grpc/catalog"
 	"github.com/YagorX/shop-gateway/internal/config"
 	"github.com/YagorX/shop-gateway/internal/observability"
@@ -29,6 +31,7 @@ type App struct {
 	httpApp           *httpapp.App
 	grpcCatalogClient *catalog_client.Client
 	grpcAuthClient    *auth_client.Client
+	grpcCartClient    *cart_client.Client
 
 	shutdownTracing func(context.Context) error
 
@@ -60,33 +63,62 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		shutdownTracing = nil
 	}
 
+	stopTracing := func() {
+		if shutdownTracing != nil {
+			_ = shutdownTracing(context.Background())
+		}
+	}
+
 	grpc_catalog_client, err := catalog_client.NewClient(runtimeLogger.Logger, cfg.CatalogGRPC.Addr, cfg.CatalogGRPC.Timeout)
 	if err != nil {
-		_ = shutdownTracing(context.Background())
+		stopTracing()
 		return nil, fmt.Errorf("create grpc catalog client: %w", err)
 	}
 
 	grpc_auth_client, err := auth_client.NewClient(runtimeLogger.Logger, cfg.AuthGRPC.Addr, cfg.AuthGRPC.Timeout, cfg.AuthTLS)
 	if err != nil {
-		_ = shutdownTracing(context.Background())
+		stopTracing()
+		_ = grpc_catalog_client.Close()
 		return nil, fmt.Errorf("create grpc auth client: %w", err)
+	}
+
+	grpc_cart_client, err := cart_client.NewClient(runtimeLogger.Logger, cfg.CartGRPC.Addr, cfg.CartGRPC.Timeout)
+	if err != nil {
+		stopTracing()
+		_ = grpc_catalog_client.Close()
+		_ = grpc_auth_client.Close()
+		return nil, fmt.Errorf("create grpc cart client: %w", err)
 	}
 
 	catalog_adapter, err := catalog_adapter.NewRepository(grpc_catalog_client)
 	if err != nil {
-		_ = shutdownTracing(context.Background())
+		stopTracing()
+		_ = grpc_catalog_client.Close()
+		_ = grpc_auth_client.Close()
 		return nil, fmt.Errorf("create catalog_adapter: %w", err)
 	}
 
 	auth_adapter, err := auth_adapter.NewRepository(grpc_auth_client)
 	if err != nil {
-		_ = shutdownTracing(context.Background())
+		stopTracing()
+		_ = grpc_catalog_client.Close()
+		_ = grpc_auth_client.Close()
 		return nil, fmt.Errorf("create auth_adapter: %w", err)
 	}
 
-	gatewaySrv, err := gateway_srv.NewGatewayService(runtimeLogger.Logger, catalog_adapter, auth_adapter)
+	cart_adapter, err := cart_adapter.NewRepository(grpc_cart_client)
 	if err != nil {
-		_ = shutdownTracing(context.Background())
+		stopTracing()
+		_ = grpc_catalog_client.Close()
+		_ = grpc_auth_client.Close()
+		return nil, fmt.Errorf("create cart_adapter: %w", err)
+	}
+
+	gatewaySrv, err := gateway_srv.NewGatewayService(runtimeLogger.Logger, catalog_adapter, auth_adapter, cart_adapter)
+	if err != nil {
+		stopTracing()
+		_ = grpc_catalog_client.Close()
+		_ = grpc_auth_client.Close()
 		return nil, fmt.Errorf("create gateway_service: %w", err)
 	}
 
@@ -124,10 +156,22 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 						ClientKeyFile:  cfg.AuthTLS.ClientKeyFile,
 					},
 				},
+				grpchandlers.CartHealthChecker{
+					Addr:    cfg.CartGRPC.Addr,
+					Timeout: cfg.CartGRPC.Timeout,
+					// TLS: grpchandlers.TLSConfig{
+					// 	Enabled:        cfg.CartTLS.Enabled,
+					// 	CAFile:         cfg.CartTLS.CAFile,
+					// 	ServerName:     cfg.CartTLS.ServerName,
+					// 	ClientCertFile: cfg.CartTLS.ClientCertFile,
+					// 	ClientKeyFile:  cfg.CartTLS.ClientKeyFile,
+					// },
+				},
 			},
 		},
 		ProductService: gatewaySrv,
 		AuthService:    gatewaySrv,
+		CartService:    gatewaySrv,
 		SwaggerHandler: swaggerHandler,
 		SwaggerSpecDir: swaggerSpecDir,
 		StatusHandler:  statusHandler,
@@ -146,7 +190,10 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 
 	httpRuntime, err := httpapp.New(runtimeLogger.Logger, httpServer, cfg.HTTPTLS.Enabled, cfg.HTTPTLS.CertFile, cfg.HTTPTLS.KeyFile)
 	if err != nil {
-		_ = shutdownTracing(context.Background())
+		stopTracing()
+		_ = grpc_catalog_client.Close()
+		_ = grpc_auth_client.Close()
+		_ = grpc_cart_client.Close()
 		return nil, fmt.Errorf("create http app: %w", err)
 	}
 
@@ -156,6 +203,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		shutdownTracing:   shutdownTracing,
 		grpcCatalogClient: grpc_catalog_client,
 		grpcAuthClient:    grpc_auth_client,
+		grpcCartClient:    grpc_cart_client,
 		errCh:             make(chan error, 1),
 	}, nil
 
@@ -212,7 +260,13 @@ func (a *App) Shutdown(ctx context.Context) error {
 
 	if a.grpcAuthClient != nil {
 		if err := a.grpcAuthClient.Close(); err != nil {
-			shutdownErr = errors.Join(shutdownErr, fmt.Errorf("stop grpc client: %w", err))
+			shutdownErr = errors.Join(shutdownErr, fmt.Errorf("stop grpc auth client: %w", err))
+		}
+	}
+
+	if a.grpcCartClient != nil {
+		if err := a.grpcCartClient.Close(); err != nil {
+			shutdownErr = errors.Join(shutdownErr, fmt.Errorf("stop grpc cart client: %w", err))
 		}
 	}
 
