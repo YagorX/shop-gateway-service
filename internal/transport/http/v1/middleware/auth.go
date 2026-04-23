@@ -32,6 +32,12 @@ func UserUUIDFromContext(ctx context.Context) (string, bool) {
 	return v, ok
 }
 
+// ContextWithUserUUID returns a new context carrying the given user UUID.
+// Use this in tests or middleware composition to pre-populate the user identity.
+func ContextWithUserUUID(ctx context.Context, userUUID string) context.Context {
+	return context.WithValue(ctx, userUUIDKey, userUUID)
+}
+
 func AppIDFromContext(ctx context.Context) (int64, bool) {
 	if ctx == nil {
 		return 0, false
