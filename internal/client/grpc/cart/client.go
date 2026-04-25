@@ -2,16 +2,21 @@
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"time"
 
 	cartv1 "github.com/YagorX/shop-contracts/gen/go/proto/cart/v1"
+	"github.com/YagorX/shop-gateway/internal/config"
 	"github.com/YagorX/shop-gateway/internal/observability"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -26,9 +31,14 @@ type Client struct {
 	client cartv1.CartServiceClient
 }
 
-func NewClient(log *slog.Logger, addr string, timeout time.Duration) (*Client, error) {
+func NewClient(log *slog.Logger, addr string, timeout time.Duration, tlsCfg config.TLSConfig) (*Client, error) {
 	if err := validate(addr, timeout, log); err != nil {
 		return nil, fmt.Errorf("validate cart client: %w", err)
+	}
+
+	transportCreds, err := buildTransportCredentials(tlsCfg)
+	if err != nil {
+		return nil, fmt.Errorf("build cart transport credentials: %w", err)
 	}
 
 	dialCtx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -37,7 +47,7 @@ func NewClient(log *slog.Logger, addr string, timeout time.Duration) (*Client, e
 	conn, err := grpc.DialContext(
 		dialCtx,
 		addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(transportCreds),
 		grpc.WithBlock(),
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 	)
@@ -184,6 +194,35 @@ func (c *Client) ClearCart(ctx context.Context, userID string) (*cartv1.ClearCar
 	}
 
 	return resp, nil
+}
+
+func buildTransportCredentials(tlsCfg config.TLSConfig) (credentials.TransportCredentials, error) {
+	if !tlsCfg.Enabled {
+		return insecure.NewCredentials(), nil
+	}
+
+	caPEM, err := os.ReadFile(tlsCfg.CAFile)
+	if err != nil {
+		return nil, fmt.Errorf("read ca file: %w", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caPEM) {
+		return nil, errors.New("failed to parse ca certificate")
+	}
+
+	clientCert, err := tls.LoadX509KeyPair(tlsCfg.ClientCertFile, tlsCfg.ClientKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("load client cert/key: %w", err)
+	}
+
+	tlsConfig := &tls.Config{
+		RootCAs:      pool,
+		ServerName:   tlsCfg.ServerName,
+		Certificates: []tls.Certificate{clientCert},
+		MinVersion:   tls.VersionTLS12,
+	}
+
+	return credentials.NewTLS(tlsConfig), nil
 }
 
 func validate(addr string, timeout time.Duration, logger *slog.Logger) error {

@@ -14,15 +14,18 @@ import (
 	catalog_adapter "github.com/YagorX/shop-gateway/internal/adapters/catalog_grpc"
 	httpapp "github.com/YagorX/shop-gateway/internal/app/httpapp"
 	auth_client "github.com/YagorX/shop-gateway/internal/client/grpc/auth"
+
 	cart_client "github.com/YagorX/shop-gateway/internal/client/grpc/cart"
 	catalog_client "github.com/YagorX/shop-gateway/internal/client/grpc/catalog"
 	"github.com/YagorX/shop-gateway/internal/config"
 	"github.com/YagorX/shop-gateway/internal/observability"
+	"github.com/YagorX/shop-gateway/internal/ratelimit"
 	gateway_srv "github.com/YagorX/shop-gateway/internal/service/gateway"
 	_ "github.com/YagorX/shop-gateway/internal/transport/grpc/v1/handlers"
 	grpchandlers "github.com/YagorX/shop-gateway/internal/transport/grpc/v1/handlers"
 	httpv1 "github.com/YagorX/shop-gateway/internal/transport/http/v1"
 	handlershttp "github.com/YagorX/shop-gateway/internal/transport/http/v1/handlers"
+	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
@@ -51,6 +54,14 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	})
 	observability.SetDefaultLogger(runtimeLogger.Logger)
 
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     cfg.Redis.Addr,
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.DB,
+	})
+
+	limiter := ratelimit.NewLimiter(redisClient, cfg.RateLimit.Limit, cfg.RateLimit.Window)
+
 	shutdownTracing, err := observability.InitTracing(
 		ctx,
 		cfg.ServiceName,
@@ -68,21 +79,48 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 			_ = shutdownTracing(context.Background())
 		}
 	}
+	var grpc_catalog_client *catalog_client.Client
+	var grpc_auth_client *auth_client.Client
+	var grpc_cart_client *cart_client.Client
 
-	grpc_catalog_client, err := catalog_client.NewClient(runtimeLogger.Logger, cfg.CatalogGRPC.Addr, cfg.CatalogGRPC.Timeout)
+	err = retryWithExponentialBackoff(ctx,
+		func() error {
+			grpc_catalog_client, err = catalog_client.NewClient(runtimeLogger.Logger, cfg.CatalogGRPC.Addr, cfg.CatalogGRPC.Timeout)
+			return err
+		},
+		cfg.Retry.MaxRetries,
+		cfg.Retry.InitialInterval,
+		cfg.Retry.MaxInterval,
+	)
 	if err != nil {
 		stopTracing()
 		return nil, fmt.Errorf("create grpc catalog client: %w", err)
 	}
 
-	grpc_auth_client, err := auth_client.NewClient(runtimeLogger.Logger, cfg.AuthGRPC.Addr, cfg.AuthGRPC.Timeout, cfg.AuthTLS)
+	err = retryWithExponentialBackoff(ctx,
+		func() error {
+			grpc_auth_client, err = auth_client.NewClient(runtimeLogger.Logger, cfg.AuthGRPC.Addr, cfg.AuthGRPC.Timeout, cfg.AuthTLS)
+			return err
+		},
+		cfg.Retry.MaxRetries,
+		cfg.Retry.InitialInterval,
+		cfg.Retry.MaxInterval,
+	)
 	if err != nil {
 		stopTracing()
 		_ = grpc_catalog_client.Close()
 		return nil, fmt.Errorf("create grpc auth client: %w", err)
 	}
 
-	grpc_cart_client, err := cart_client.NewClient(runtimeLogger.Logger, cfg.CartGRPC.Addr, cfg.CartGRPC.Timeout)
+	err = retryWithExponentialBackoff(ctx,
+		func() error {
+			grpc_cart_client, err = cart_client.NewClient(runtimeLogger.Logger, cfg.CartGRPC.Addr, cfg.CartGRPC.Timeout, cfg.CartTLS)
+			return err
+		},
+		cfg.Retry.MaxRetries,
+		cfg.Retry.InitialInterval,
+		cfg.Retry.MaxInterval,
+	)
 	if err != nil {
 		stopTracing()
 		_ = grpc_catalog_client.Close()
@@ -159,13 +197,13 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 				grpchandlers.CartHealthChecker{
 					Addr:    cfg.CartGRPC.Addr,
 					Timeout: cfg.CartGRPC.Timeout,
-					// TLS: grpchandlers.TLSConfig{
-					// 	Enabled:        cfg.CartTLS.Enabled,
-					// 	CAFile:         cfg.CartTLS.CAFile,
-					// 	ServerName:     cfg.CartTLS.ServerName,
-					// 	ClientCertFile: cfg.CartTLS.ClientCertFile,
-					// 	ClientKeyFile:  cfg.CartTLS.ClientKeyFile,
-					// },
+					TLS: grpchandlers.TLSConfig{
+						Enabled:        cfg.CartTLS.Enabled,
+						CAFile:         cfg.CartTLS.CAFile,
+						ServerName:     cfg.CartTLS.ServerName,
+						ClientCertFile: cfg.CartTLS.ClientCertFile,
+						ClientKeyFile:  cfg.CartTLS.ClientKeyFile,
+					},
 				},
 			},
 		},
@@ -175,6 +213,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		SwaggerHandler: swaggerHandler,
 		SwaggerSpecDir: swaggerSpecDir,
 		StatusHandler:  statusHandler,
+		Limiter:        limiter,
 	})
 
 	otelHandler := otelhttp.NewHandler(httpRouter, "gateway.http")

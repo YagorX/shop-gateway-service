@@ -16,15 +16,25 @@ type Config struct {
 	LogLevel        string        `yaml:"log_level" env-default:"info"`
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" env-default:"10s"`
 
-	HTTPTLS      HTTPTLSConfig `yaml:"http_tls"`
-	HTTP         HTTPConfig    `yaml:"http"`
-	CatalogGRPC  GRPCConfig    `yaml:"catalog_grpc"`
-	AuthGRPC     GRPCConfig    `yaml:"auth_grpc"`
-	OTLP         OTLPConfig    `yaml:"otlp"`
-	AuthTLS      TLSConfig     `yaml:"auth_tls"`
-	CartGRPC     GRPCConfig    `yaml:"cart_grpc"`
-	Swagger      SwaggerConfig `yaml:"swagger"`
-	TemplatePath string        `yaml:"template_path" env-default:""`
+	HTTPTLS      HTTPTLSConfig   `yaml:"http_tls"`
+	HTTP         HTTPConfig      `yaml:"http"`
+	CatalogGRPC  GRPCConfig      `yaml:"catalog_grpc"`
+	AuthGRPC     GRPCConfig      `yaml:"auth_grpc"`
+	OTLP         OTLPConfig      `yaml:"otlp"`
+	AuthTLS      TLSConfig       `yaml:"auth_tls"`
+	CartGRPC     GRPCConfig      `yaml:"cart_grpc"`
+	CartTLS      TLSConfig       `yaml:"cart_tls"`
+	Swagger      SwaggerConfig   `yaml:"swagger"`
+	TemplatePath string          `yaml:"template_path" env-default:""`
+	Redis        RedisConfig     `yaml:"redis"`
+	RateLimit    RateLimitConfig `yaml:"rate_limit"`
+	Retry        RetryConfig     `yaml:"retry"`
+}
+
+type RetryConfig struct {
+	MaxRetries      int           `yaml:"max_retries" env-default:"3"`
+	InitialInterval time.Duration `yaml:"initial_interval" env-default:"500ms"`
+	MaxInterval     time.Duration `yaml:"max_interval" env-default:"5s"`
 }
 
 type SwaggerConfig struct {
@@ -59,6 +69,18 @@ type TLSConfig struct {
 	ServerName     string `yaml:"server_name" env-default:""`
 	ClientCertFile string `yaml:"client_cert_file" env-default:""`
 	ClientKeyFile  string `yaml:"client_key_file" env-default:""`
+}
+
+type RedisConfig struct {
+	Addr     string        `yaml:"addr" env-default:"localhost:6379"`
+	Password string        `yaml:"password" env-default:""`
+	DB       int           `yaml:"db" env-default:"0"`
+	Timeout  time.Duration `yaml:"timeout" env-default:"3s"`
+}
+
+type RateLimitConfig struct {
+	Limit  int           `yaml:"limit"`  // макс запросов в окне
+	Window time.Duration `yaml:"window"` // размер окна
 }
 
 func MustLoad() *Config {
@@ -133,6 +155,16 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("otlp.endpoint is required")
 	}
 
+	if c.Redis.Addr == "" {
+		return fmt.Errorf("redis.addr is required")
+	}
+	if c.RateLimit.Limit <= 0 {
+		return fmt.Errorf("rate_limit.limit must be > 0")
+	}
+	if c.RateLimit.Window <= 0 {
+		return fmt.Errorf("rate_limit.window must be > 0")
+	}
+
 	if c.AuthTLS.Enabled {
 		if c.AuthTLS.CAFile == "" {
 			return fmt.Errorf("auth_tls.ca_file is required when auth_tls.enabled=true")
@@ -162,6 +194,21 @@ func (c *Config) Validate() error {
 	}
 	if c.CartGRPC.Timeout <= 0 {
 		return fmt.Errorf("cart_grpc.timeout must be > 0")
+	}
+
+	if c.CartTLS.Enabled {
+		if c.CartTLS.CAFile == "" {
+			return fmt.Errorf("cart_tls.ca_file is required when cart_tls.enabled=true")
+		}
+		if c.CartTLS.ServerName == "" {
+			return fmt.Errorf("cart_tls.server_name is required when cart_tls.enabled=true")
+		}
+		if c.CartTLS.ClientCertFile == "" {
+			return fmt.Errorf("cart_tls.client_cert_file is required when cart_tls.enabled=true")
+		}
+		if c.CartTLS.ClientKeyFile == "" {
+			return fmt.Errorf("cart_tls.client_key_file is required when cart_tls.enabled=true")
+		}
 	}
 
 	return nil

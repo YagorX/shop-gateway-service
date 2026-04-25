@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/YagorX/shop-gateway/internal/ratelimit"
 	"github.com/YagorX/shop-gateway/internal/transport/http/v1/contracts"
 	"github.com/YagorX/shop-gateway/internal/transport/http/v1/handlers"
 	"github.com/YagorX/shop-gateway/internal/transport/http/v1/middleware"
@@ -19,6 +20,7 @@ type RouterDeps struct {
 	SwaggerHandler     *handlers.SwaggerHandler
 	SwaggerSpecDir     string
 	StatusHandler      *handlers.StatusHandler
+	Limiter            *ratelimit.Limiter
 }
 
 func NewRouter(deps RouterDeps) http.Handler {
@@ -107,5 +109,6 @@ func NewRouter(deps RouterDeps) http.Handler {
 	}
 
 	return middleware.Chain(mux,
+		middleware.RateLimit(logger, deps.Limiter),
 		middleware.Recovery(logger))
 }

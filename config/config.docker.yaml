@@ -17,11 +17,11 @@ http_tls:
 
 catalog_grpc:
   addr: proxy-service:9095
-  timeout: 3s
+  timeout: 10s
 
 auth_grpc:
   addr: auth-service:44044
-  timeout: 3s
+  timeout: 10s
 
 auth_tls:
   enabled: true
@@ -36,7 +36,10 @@ otlp:
 
 cart_grpc:
   addr: cart-service:9092
-  timeout: 3s
+  timeout: 10s
+
+cart_tls:
+  enabled: false
 
 swagger:
   ui_path: /app/web/swagger/index.html
@@ -44,3 +47,18 @@ swagger:
   spec_path: /app/openapi/gateway.v1.yaml
 
 template_path: /app/web/status/index.html
+
+redis:
+  addr: redis:6379
+  password: ""
+  db: 0
+  timeout: 3s
+
+rate_limit:
+  limit: 100
+  window: 1m
+
+retry:
+  max_retries: 6
+  initial_interval: 2s
+  max_interval: 32s

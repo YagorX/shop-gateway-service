@@ -32,8 +32,11 @@ otlp:
   endpoint: localhost:4317
 
 cart_grpc:
-  addr: cart-service:9092
+  addr: localhost:9092
   timeout: 3s
+
+cart_tls:
+  enabled: false
 
 swagger:
   ui_path: web/swagger/index.html
@@ -41,3 +44,18 @@ swagger:
   spec_path: openapi/gateway.v1.yaml
 
 template_path: web/status/index.html
+
+redis:
+  addr: localhost:6379
+  password: ""
+  db: 0
+  timeout: 3s
+
+rate_limit:
+  limit: 100
+  window: 1m
+
+retry:
+  max_retries: 6
+  initial_interval: 2s
+  max_interval: 32s

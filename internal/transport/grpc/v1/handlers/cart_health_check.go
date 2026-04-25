@@ -13,6 +13,7 @@ import (
 type CartHealthChecker struct {
 	Addr    string
 	Timeout time.Duration
+	TLS     TLSConfig
 }
 
 func (c CartHealthChecker) Check(ctx context.Context) error {
@@ -25,13 +26,18 @@ func (c CartHealthChecker) Check(ctx context.Context) error {
 		timeout = 5 * time.Second
 	}
 
+	transportCreds, err := buildAuthTransportCredentials(c.TLS)
+	if err != nil {
+		return fmt.Errorf("build cart health transport credentials: %w", err)
+	}
+
 	checkCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	conn, err := grpc.DialContext(
 		checkCtx,
 		c.Addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(transportCreds),
 		grpc.WithBlock(),
 	)
 	if err != nil {
@@ -53,3 +59,5 @@ func (c CartHealthChecker) Check(ctx context.Context) error {
 
 	return nil
 }
+
+var _ = insecure.NewCredentials // держим импорт явным на случай рефакторинга

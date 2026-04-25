@@ -20,6 +20,8 @@ tags:
     description: Registration, login, token validation and logout operations.
   - name: Admin
     description: Runtime administration endpoints.
+  - name: Cart
+    description: Shopping cart operations. All endpoints require Bearer token authentication.
 
 paths:
   /health:
@@ -50,6 +52,16 @@ paths:
     $ref: './gateway.v1/paths/auth_logout.yaml'
   /auth/is-admin:
     $ref: './gateway.v1/paths/auth_is_admin.yaml'
+  /cart:
+    $ref: './gateway.v1/paths/cart.yaml'
+  /cart/items:
+    $ref: './gateway.v1/paths/cart_items.yaml'
+  /cart/items/update:
+    $ref: './gateway.v1/paths/cart_items_update.yaml'
+  /cart/items/remove:
+    $ref: './gateway.v1/paths/cart_items_remove.yaml'
+  /cart/clear:
+    $ref: './gateway.v1/paths/cart_clear.yaml'
 
 components:
   securitySchemes:
@@ -285,3 +297,84 @@ components:
         is_admin:
           type: boolean
           example: false
+
+    OkResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          example: true
+
+    CartItem:
+      type: object
+      required: [product_id, quantity, price_snapshot_kopecks, added_at]
+      properties:
+        product_id:
+          type: string
+          example: prod-001
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+          example: 2
+        price_snapshot_kopecks:
+          type: integer
+          format: int64
+          description: Price at the time item was added, in kopecks
+          example: 19900
+        added_at:
+          type: string
+          format: date-time
+
+    CartResponse:
+      type: object
+      required: [user_id, items, created_at, updated_at]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartItem'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    AddCartItemRequest:
+      type: object
+      required: [product_id, quantity]
+      properties:
+        product_id:
+          type: string
+          example: prod-001
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+          example: 2
+
+    UpdateCartItemRequest:
+      type: object
+      required: [product_id, quantity]
+      properties:
+        product_id:
+          type: string
+          example: prod-001
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+          example: 5
+
+    RemoveCartItemRequest:
+      type: object
+      required: [product_id]
+      properties:
+        product_id:
+          type: string
+          example: prod-001

@@ -1,0 +1,45 @@
+delete:
+  summary: Remove item from cart
+  operationId: removeCartItem
+  tags: [Cart]
+  security:
+    - bearerAuth: []
+  parameters:
+    - $ref: '../../gateway.v1.yaml#/components/parameters/XAppIdHeader'
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../../gateway.v1.yaml#/components/schemas/RemoveCartItemRequest'
+  responses:
+    "200":
+      description: Item removed successfully
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/OkResponse'
+    "400":
+      description: Invalid request body
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    "401":
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    "404":
+      description: Cart not found
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    "429":
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'

@@ -1,0 +1,33 @@
+delete:
+  summary: Clear all items from cart
+  operationId: clearCart
+  tags: [Cart]
+  security:
+    - bearerAuth: []
+  parameters:
+    - $ref: '../../gateway.v1.yaml#/components/parameters/XAppIdHeader'
+  responses:
+    "200":
+      description: Cart cleared successfully
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/OkResponse'
+    "401":
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    "404":
+      description: Cart not found
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    "429":
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'

@@ -1,0 +1,33 @@
+get:
+  summary: Get current user's cart
+  operationId: getCart
+  tags: [Cart]
+  security:
+    - bearerAuth: []
+  parameters:
+    - $ref: '../../gateway.v1.yaml#/components/parameters/XAppIdHeader'
+  responses:
+    "200":
+      description: Cart contents
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/CartResponse'
+    "401":
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    "404":
+      description: Cart not found
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    "429":
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'

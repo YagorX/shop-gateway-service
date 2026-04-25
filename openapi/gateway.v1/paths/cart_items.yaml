@@ -1,0 +1,45 @@
+post:
+  summary: Add item to cart
+  operationId: addCartItem
+  tags: [Cart]
+  security:
+    - bearerAuth: []
+  parameters:
+    - $ref: '../../gateway.v1.yaml#/components/parameters/XAppIdHeader'
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../../gateway.v1.yaml#/components/schemas/AddCartItemRequest'
+  responses:
+    "200":
+      description: Item added successfully
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/OkResponse'
+    "400":
+      description: Invalid request body
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    "401":
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    "404":
+      description: Product not found
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
+    "429":
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '../../gateway.v1.yaml#/components/schemas/ErrorEnvelope'
