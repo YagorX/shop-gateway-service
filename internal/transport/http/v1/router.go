@@ -3,12 +3,14 @@ package v1
 import (
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/YagorX/shop-gateway/internal/ratelimit"
 	"github.com/YagorX/shop-gateway/internal/transport/http/v1/contracts"
 	"github.com/YagorX/shop-gateway/internal/transport/http/v1/handlers"
 	"github.com/YagorX/shop-gateway/internal/transport/http/v1/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	redis "github.com/redis/go-redis/v9"
 )
 
 type RouterDeps struct {
@@ -21,6 +23,7 @@ type RouterDeps struct {
 	SwaggerSpecDir     string
 	StatusHandler      *handlers.StatusHandler
 	Limiter            *ratelimit.Limiter
+	RedisClient        *redis.Client
 }
 
 func NewRouter(deps RouterDeps) http.Handler {
@@ -110,5 +113,6 @@ func NewRouter(deps RouterDeps) http.Handler {
 
 	return middleware.Chain(mux,
 		middleware.RateLimit(logger, deps.Limiter),
+		middleware.Idempotency(logger, deps.RedisClient, 24*time.Hour),
 		middleware.Recovery(logger))
 }

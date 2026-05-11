@@ -214,6 +214,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		SwaggerSpecDir: swaggerSpecDir,
 		StatusHandler:  statusHandler,
 		Limiter:        limiter,
+		RedisClient:    redisClient,
 	})
 
 	otelHandler := otelhttp.NewHandler(httpRouter, "gateway.http")

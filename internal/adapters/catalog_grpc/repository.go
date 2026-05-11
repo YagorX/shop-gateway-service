@@ -23,6 +23,8 @@ type productStream struct {
 	stream catalogv1.CatalogService_StreamProductsClient
 }
 
+const maxUint32Value = int64(^uint32(0))
+
 var _ gateway.ProductRepository = (*CatalogAdapter)(nil)
 
 func NewRepository(client *clientcatalog.Client) (*CatalogAdapter, error) {
@@ -39,7 +41,7 @@ func (r *CatalogAdapter) List(ctx context.Context, limit, offset int) ([]domain.
 	if limit < 0 || offset < 0 {
 		return nil, domain.ErrInvalidPagination
 	}
-	if limit > math.MaxUint32 || offset > math.MaxUint32 {
+	if int64(limit) > maxUint32Value || int64(offset) > maxUint32Value {
 		return nil, domain.ErrInvalidPagination
 	}
 
@@ -83,7 +85,7 @@ func (r *CatalogAdapter) Stream(ctx context.Context, limit, offset int) (gateway
 	if limit < 0 || offset < 0 {
 		return nil, domain.ErrInvalidPagination
 	}
-	if limit > math.MaxUint32 || offset > math.MaxUint32 {
+	if int64(limit) > maxUint32Value || int64(offset) > maxUint32Value {
 		return nil, domain.ErrInvalidPagination
 	}
 

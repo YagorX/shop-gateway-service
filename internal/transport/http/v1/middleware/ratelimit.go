@@ -23,6 +23,12 @@ func RateLimit(logger *slog.Logger, limiter *ratelimit.Limiter) Middleware {
 				slog.String("path", r.URL.Path),
 			)
 
+			if limiter == nil {
+				log.Debug("rate limiter is not configured, skipping")
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			ip := r.RemoteAddr
 			if ip == "" {
 				log.Warn("remote address is empty, skipping rate limit")

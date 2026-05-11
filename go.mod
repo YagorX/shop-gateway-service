@@ -2,6 +2,8 @@ module github.com/YagorX/shop-gateway
 
 go 1.25.0
 
+replace github.com/YagorX/shop-contracts => ../shop-contracts
+
 require (
 	github.com/ilyakaznacheev/cleanenv v1.5.0
 	github.com/redis/go-redis/v9 v9.18.0

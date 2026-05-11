@@ -1,4 +1,5 @@
 /.gocache
+.gomodcache
 
 # Private keys and certificate requests
 *.key
