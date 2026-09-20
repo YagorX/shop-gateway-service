@@ -1,10 +1,11 @@
 FROM golang:1.25.0 AS builder
-WORKDIR /src
+WORKDIR /src/shop-gateway-service
 
-COPY go.mod go.sum ./
+COPY shop-gateway-service/go.mod shop-gateway-service/go.sum ./
+COPY shop-contracts /src/shop-contracts
 RUN go mod download
 
-COPY . .
+COPY shop-gateway-service ./
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/gateway-service ./cmd/gateway
 
 FROM alpine:3.20
@@ -13,10 +14,10 @@ WORKDIR /app
 RUN addgroup -S app && adduser -S app -G app
 
 COPY --from=builder /out/gateway-service /app/gateway-service
-COPY config/config.docker.yaml /app/config/config.docker.yaml
-COPY certs ./certs
-COPY web ./web
-COPY openapi ./openapi
+COPY shop-gateway-service/config/config.docker.yaml /app/config/config.docker.yaml
+# Сертификаты приходят через volume ../infra/certs:/app/certs (см. compose), в образ не вкапываются.
+COPY shop-gateway-service/web ./web
+COPY shop-gateway-service/openapi ./openapi
 
 
 USER app

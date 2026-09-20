@@ -19,6 +19,9 @@ catalog_grpc:
   addr: localhost:9091
   timeout: 3s
 
+catalog_tls:
+  enabled: false
+
 auth_grpc:
   addr: localhost:44044
   timeout: 3s

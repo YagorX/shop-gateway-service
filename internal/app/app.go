@@ -85,7 +85,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 
 	err = retryWithExponentialBackoff(ctx,
 		func() error {
-			grpc_catalog_client, err = catalog_client.NewClient(runtimeLogger.Logger, cfg.CatalogGRPC.Addr, cfg.CatalogGRPC.Timeout)
+			grpc_catalog_client, err = catalog_client.NewClient(runtimeLogger.Logger, cfg.CatalogGRPC.Addr, cfg.CatalogGRPC.Timeout, cfg.CatalogTLS)
 			return err
 		},
 		cfg.Retry.MaxRetries,
@@ -182,6 +182,13 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 				grpchandlers.CatalogHealthChecker{
 					Addr:    cfg.CatalogGRPC.Addr,
 					Timeout: cfg.CatalogGRPC.Timeout,
+					TLS: grpchandlers.TLSConfig{
+						Enabled:        cfg.CatalogTLS.Enabled,
+						CAFile:         cfg.CatalogTLS.CAFile,
+						ServerName:     cfg.CatalogTLS.ServerName,
+						ClientCertFile: cfg.CatalogTLS.ClientCertFile,
+						ClientKeyFile:  cfg.CatalogTLS.ClientKeyFile,
+					},
 				},
 				grpchandlers.AuthHealthChecker{
 					Addr:    cfg.AuthGRPC.Addr,

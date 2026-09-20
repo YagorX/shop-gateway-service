@@ -19,6 +19,7 @@ type Config struct {
 	HTTPTLS      HTTPTLSConfig   `yaml:"http_tls"`
 	HTTP         HTTPConfig      `yaml:"http"`
 	CatalogGRPC  GRPCConfig      `yaml:"catalog_grpc"`
+	CatalogTLS   TLSConfig       `yaml:"catalog_tls"`
 	AuthGRPC     GRPCConfig      `yaml:"auth_grpc"`
 	OTLP         OTLPConfig      `yaml:"otlp"`
 	AuthTLS      TLSConfig       `yaml:"auth_tls"`

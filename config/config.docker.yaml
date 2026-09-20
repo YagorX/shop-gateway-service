@@ -19,6 +19,15 @@ catalog_grpc:
   addr: proxy-service:9095
   timeout: 10s
 
+# gateway держит TLS-сессию с proxy (termination), поэтому server_name = proxy-service,
+# хотя конечный сервис за proxy — catalog.
+catalog_tls:
+  enabled: true
+  ca_file: /app/certs/ca.crt
+  server_name: proxy-service
+  client_cert_file: /app/certs/gateway-client.crt
+  client_key_file: /app/certs/gateway-client.key
+
 auth_grpc:
   addr: auth-service:44044
   timeout: 10s
@@ -30,6 +39,14 @@ auth_tls:
   client_cert_file: /app/certs/gateway-client.crt
   client_key_file: /app/certs/gateway-client.key
 
+cart_tls:
+  enabled: true
+  ca_file: /app/certs/ca.crt
+  server_name: cart-service
+  client_cert_file: /app/certs/gateway-client.crt
+  client_key_file: /app/certs/gateway-client.key
+
+
 
 otlp:
   endpoint: jaeger:4317
@@ -37,9 +54,6 @@ otlp:
 cart_grpc:
   addr: cart-service:9092
   timeout: 10s
-
-cart_tls:
-  enabled: false
 
 swagger:
   ui_path: /app/web/swagger/index.html
