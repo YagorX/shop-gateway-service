@@ -30,7 +30,7 @@ catalog_tls:
 
 auth_grpc:
   addr: auth-service:44044
-  timeout: 10s
+  timeout: 3s
 
 auth_tls:
   enabled: true
