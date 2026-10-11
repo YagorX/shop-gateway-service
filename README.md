@@ -113,7 +113,7 @@ shop-gateway/
 | `GET` | `/ready` | Readiness: health-check всех трёх gRPC-зависимостей |
 | `GET` | `/metrics` | Prometheus |
 | `GET` | `/status` | HTML-страница состояния (`html/template`) |
-| `GET` `POST` | `/admin/log-level` | Уровень логирования |
+| `GET` `POST` | `/admin/log-level` | Уровень логирования; `Bearer` + `X-App-Id`, только администратор |
 | `GET` | `/swagger/`, `/redoc/` | Документация API |
 
 ### Формат ошибок
@@ -305,7 +305,7 @@ go test ./internal/...
 6. **Сервисный слой на 958 строк.** [`internal/service/gateway/gateway.go`](internal/service/gateway/gateway.go) — 15 методов, каждый повторяет один и тот же блок из ~50 строк: метрики, span, `ensureInitialized`, маппинг ошибок. Первый кандидат на вынос в декоратор.
 7. **Утечка соединения в ветке ошибки.** В [`internal/app/app.go`](internal/app/app.go) обработка ошибки `cart_adapter` закрывает catalog- и auth-клиентов, но не `grpc_cart_client`.
 8. **Неверная метка пути в метриках корзины.** `RemoveItem`, `UpdateItem` и `ClearCart` в [`handlers/cart.go`](internal/transport/http/v1/handlers/cart.go) пишут в метку `path` значение `/cart/items`, хотя обслуживают `/cart/items/remove`, `/cart/items/update` и `/cart/clear`.
-9. **`/admin/log-level` и `/status` без авторизации** при том, что порт публичный.
+9. **`/status` без авторизации** при том, что порт публичный.
 10. **RPC-стиль в REST API.** `/cart/items/update`, `/cart/items/remove`, `/cart/clear` выбиваются из остальной схемы — ожидались бы `PATCH /cart/items/{product_id}`, `DELETE /cart/items/{product_id}`, `DELETE /cart`.
 11. **`slog.Error` вместо `service.logger`** в отдельных ветках `gateway.go` — пишет в глобальный логгер, минуя сконфигурированный.
 12. **Незакоммиченные изменения** на момент аудита: 8 файлов, включая +934/−232 строки в `openapi/gateway.v1.yaml`.

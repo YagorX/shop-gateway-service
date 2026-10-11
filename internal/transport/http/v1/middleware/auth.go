@@ -106,20 +106,7 @@ func Auth(logger *slog.Logger, authService contracts.AuthService) Middleware {
 
 			userUUID, err := authService.ValidateToken(r.Context(), token, appID)
 			if err != nil {
-				switch status.Code(err) {
-				case codes.Unauthenticated, codes.NotFound:
-					log.Warn("token rejected", slog.Int64("app_id", appID), slog.String("error", err.Error()))
-					writeError(w, http.StatusUnauthorized, "unauthorized", "token validation failed")
-				case codes.Unavailable:
-					log.Error("auth unavailable", slog.String("error", err.Error()))
-					writeError(w, http.StatusServiceUnavailable, "service_unavailable", "auth service unavailable")
-				case codes.DeadlineExceeded:
-					log.Error("auth timeout", slog.String("error", err.Error()))
-					writeError(w, http.StatusGatewayTimeout, "upstream_timeout", "auth service timeout")
-				default:
-					log.Error("token validation failed", slog.String("error", err.Error()))
-					writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
-				}
+				writeUpstreamError(w, log, err)
 				return
 			}
 
@@ -150,5 +137,26 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(payload); err != nil {
 		slog.Error("writeJSON: failed to encode response", slog.String("error", err.Error()))
+	}
+}
+
+// Ответ на ошибку вызова auth; err не nil. 401 — только когда auth ответил, что токен или
+// пользователь недействителен: 401 заставляет клиента стереть токены, и отвечать им на
+// недоступность auth значило бы разлогинить всех при его рестарте.
+func writeUpstreamError(w http.ResponseWriter, log *slog.Logger, err error) {
+	switch status.Code(err) {
+	case codes.Unauthenticated, codes.NotFound:
+		// Протухший или чужой токен — обычное дело, а не авария: Warn, а не Error.
+		log.Warn("token rejected", slog.String("error", err.Error()))
+		writeError(w, http.StatusUnauthorized, "unauthorized", "token validation failed")
+	case codes.Unavailable:
+		log.Error("auth unavailable", slog.String("error", err.Error()))
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "auth service unavailable")
+	case codes.DeadlineExceeded:
+		log.Error("auth timeout", slog.String("error", err.Error()))
+		writeError(w, http.StatusGatewayTimeout, "upstream_timeout", "auth service timeout")
+	default:
+		log.Error("auth call failed", slog.String("error", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 	}
 }

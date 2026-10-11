@@ -21,6 +21,8 @@ func discardLogger() *slog.Logger {
 
 type stubAuthService struct {
 	validateErr error
+	isAdmin     bool
+	isAdminErr  error
 }
 
 func (s stubAuthService) Register(context.Context, string, string, string) (string, error) {
@@ -39,7 +41,7 @@ func (s stubAuthService) Logout(context.Context, string, int64, string) error {
 	return nil
 }
 func (s stubAuthService) IsAdmin(context.Context, string) (bool, error) {
-	return false, nil
+	return s.isAdmin, s.isAdminErr
 }
 
 // 401 заставляет фронт стереть токены. Отвечать им можно, только когда auth сказал, что токен плохой;

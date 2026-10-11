@@ -8,6 +8,7 @@ middleware/
 ├── ratelimit.go    # sliding window по IP
 ├── idempotency.go  # кэш ответов по Idempotency-Key
 ├── auth.go         # Bearer + X-App-Id → ValidateToken
+├── admin.go        # RequireAdmin: после Auth, IsAdmin → 403
 ├── recovery.go     # recover() → 500 JSON
 └── response.go     # writeError / writeJSON
 ```
@@ -125,6 +126,10 @@ const userUUIDKey contextKey = "user_uuid"
 Хендлеры читают через `UserUUIDFromContext(ctx)` и `AppIDFromContext(ctx)`. Есть также `ContextWithUserUUID` — для тестов хендлеров без прохождения middleware.
 
 Важное следствие: `user_id` во всех операциях с корзиной берётся **из токена**, а не из тела запроса. Обратиться к чужой корзине невозможно.
+
+## RequireAdmin
+
+Ставится **после** `Auth` и закрывает `/admin/log-level`: токен к этому моменту проверен, `user_uuid` лежит в контексте, остаётся вызвать `IsAdmin`. Не администратор — `403`; ошибки вызова auth разбираются тем же `writeUpstreamError`, что и в `Auth` (`401` только на отказ по токену, недоступность — `503`/`504`). Если перед ним забыли поставить `Auth`, контекст пуст и ответ — `500`: эндпоинт закрывается, а не открывается.
 
 ## Recovery
 

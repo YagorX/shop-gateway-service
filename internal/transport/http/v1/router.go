@@ -43,7 +43,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 	mux.HandleFunc("/health", healthHandler.Health)
 	mux.HandleFunc("/ready", healthHandler.Ready)
 	mux.Handle("/metrics", promhttp.Handler())
-	mux.HandleFunc("/admin/log-level", adminHandler.LogLevel)
+	mux.Handle("/admin/log-level", authMiddleware(middleware.RequireAdmin(logger, deps.AuthService)(http.HandlerFunc(adminHandler.LogLevel))))
 	mux.Handle(
 		"/products",
 		authMiddleware(http.HandlerFunc(productsHandler.List)),
