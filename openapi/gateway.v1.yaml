@@ -462,12 +462,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '500':
           description: Internal error
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
   /auth/login:
     post:
       tags:
@@ -499,12 +505,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '500':
           description: Internal error
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
   /auth/validate:
     post:
       tags:
@@ -673,6 +685,50 @@ components:
         type: integer
         format: int64
         minimum: 1
+  headers:
+    RetryAfter:
+      description: Seconds to wait before retrying the request.
+      schema:
+        type: integer
+        minimum: 1
+        example: 1
+  responses:
+    TooManyRequests:
+      description: |
+        Request rejected to protect the service; retry after the number of seconds in `Retry-After`.
+        `error.code` tells the cause: `too_many_requests` — auth is at its password hashing capacity,
+        `rate_limit_exceeded` — the client IP exceeded the gateway rate limit.
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: too_many_requests
+              message: server is busy, please try again later
+    ServiceUnavailable:
+      description: Upstream service is unavailable; the request may be retried later.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: service_unavailable
+              message: service unavailable
+    GatewayTimeout:
+      description: Upstream service did not respond in time; the request may be retried later.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: upstream_timeout
+              message: upstream timeout
   schemas:
     StatusResponse:
       type: object

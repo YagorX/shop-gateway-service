@@ -3,11 +3,14 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/YagorX/shop-gateway/internal/observability"
 	"github.com/YagorX/shop-gateway/internal/transport/http/v1/contracts"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -308,24 +311,54 @@ func writeAuthError(w http.ResponseWriter, err error) string {
 
 	switch status.Code(err) {
 	case codes.InvalidArgument:
-		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		writeError(w, http.StatusBadRequest, "bad_request", upstreamMessage(err))
 		return "400"
 	case codes.AlreadyExists:
-		writeError(w, http.StatusConflict, "already_exists", err.Error())
+		writeError(w, http.StatusConflict, "already_exists", upstreamMessage(err))
 		return "409"
 	case codes.NotFound:
-		writeError(w, http.StatusNotFound, "not_found", err.Error())
+		writeError(w, http.StatusNotFound, "not_found", upstreamMessage(err))
 		return "404"
 	case codes.Unauthenticated:
-		writeError(w, http.StatusUnauthorized, "unauthenticated", err.Error())
+		writeError(w, http.StatusUnauthorized, "unauthenticated", upstreamMessage(err))
 		return "401"
+	case codes.ResourceExhausted:
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfterSeconds(err)))
+		writeError(w, http.StatusTooManyRequests, "too_many_requests", "server is busy, please try again later")
+		return "429"
+	case codes.Unavailable:
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "service unavailable")
+		return "503"
+	case codes.DeadlineExceeded:
+		writeError(w, http.StatusGatewayTimeout, "upstream_timeout", "upstream timeout")
+		return "504"
 	default:
-		var target interface{ GRPCStatus() interface{} }
-		if errors.As(err, &target) {
-			writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
-			return "500"
-		}
 		writeError(w, http.StatusInternalServerError, "internal_error", "internal error")
 		return "500"
 	}
+}
+
+// Retry-After в HTTP — целые секунды; округляем вверх, чтобы клиент не пришёл раньше, чем просили.
+// Без RetryInfo всё равно отдаём 1: 429 без паузы провоцирует немедленный повтор.
+func retryAfterSeconds(err error) int {
+	if st, ok := status.FromError(err); ok {
+		for _, d := range st.Details() {
+			if ri, ok := d.(*errdetails.RetryInfo); ok {
+				if s := int(math.Ceil(ri.GetRetryDelay().AsDuration().Seconds())); s > 0 {
+					return s
+				}
+			}
+		}
+	}
+	return 1
+}
+
+// Только текст, который auth сам предназначил клиенту. status.Convert тут не подходит:
+// для обёрнутой ошибки grpc-go подставляет в Message весь текст обёртки вместе с op.
+func upstreamMessage(err error) string {
+	var se interface{ GRPCStatus() *status.Status }
+	if errors.As(err, &se) {
+		return se.GRPCStatus().Message()
+	}
+	return "internal error"
 }
