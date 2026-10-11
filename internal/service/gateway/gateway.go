@@ -397,14 +397,12 @@ func (service *GatewayService) Login(
 	}
 
 	span.SetAttributes(
-		attribute.String("auth.email_or_name", emailOrName),
 		attribute.Int64("auth.app_id", appID),
 		attribute.String("auth.device_id", deviceID),
 	)
 
 	service.logger.Info("login started",
 		slog.String("op", op),
-		slog.String("email_or_name", emailOrName),
 		slog.Int64("app_id", appID),
 		slog.String("device_id", deviceID),
 	)
@@ -413,7 +411,6 @@ func (service *GatewayService) Login(
 	if err != nil {
 		service.logger.Error("login failed",
 			slog.String("op", op),
-			slog.String("email_or_name", emailOrName),
 			slog.Int64("app_id", appID),
 			slog.String("device_id", deviceID),
 			slog.String("error", err.Error()),
@@ -427,7 +424,6 @@ func (service *GatewayService) Login(
 
 	service.logger.Info("login completed",
 		slog.String("op", op),
-		slog.String("email_or_name", emailOrName),
 		slog.Int64("app_id", appID),
 		slog.String("device_id", deviceID),
 		slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
