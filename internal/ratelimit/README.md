@@ -6,23 +6,26 @@
 
 ```go
 func NewLimiter(client *redis.Client, limit int, window time.Duration) *Limiter
-func (l *Limiter) Allow(ctx context.Context, key string) (bool, error)
+func (l *Limiter) Allow(ctx context.Context, key string) (allowed bool, retryAfter time.Duration, err error)
 ```
+
+`retryAfter` заполнен только при отказе: через столько освободится место в окне. Middleware кладёт его в `Retry-After`. Ошибка означает недоступность Redis, а не исчерпание лимита.
 
 Ключ передаёт вызывающий — [`middleware.RateLimit`](../transport/http/v1/middleware) использует IP клиента. Ничто не мешает лимитировать по `user_uuid` или по паре «пользователь + эндпоинт».
 
 ## Алгоритм
 
-Каждый запрос — элемент в sorted set с score, равным времени в миллисекундах. Окно «скользит» за счёт удаления устаревших элементов перед каждым подсчётом.
+Каждый запрос — элемент в sorted set: score — время в миллисекундах, член — уникальный id запроса (`<время>-<случайное число>`, генерируется в Go). Окно «скользит» за счёт удаления устаревших элементов перед каждым подсчётом.
 
 ```mermaid
 flowchart TD
     A["Allow(key)"] --> B["ZREMRANGEBYSCORE key 0 (now-window)<br/>удалить всё старее окна"]
     B --> C["ZCARD key<br/>сколько осталось"]
     C --> D{"count < limit?"}
-    D -->|да| E["ZADD key now now<br/>PEXPIRE key window"]
-    E --> F["вернуть 1 — разрешено"]
-    D -->|нет| G["вернуть 0 — отказ"]
+    D -->|да| E["ZADD key now member<br/>PEXPIRE key window"]
+    E --> F["вернуть {1, 0} — разрешено"]
+    D -->|нет| G["ZRANGE key 0 0 WITHSCORES<br/>самый старый запрос"]
+    G --> H["вернуть {0, oldest + window - now} — отказ и сколько ждать"]
 ```
 
 ```lua
@@ -30,16 +33,20 @@ local key    = KEYS[1]
 local window = tonumber(ARGV[1])
 local limit  = tonumber(ARGV[2])
 local now    = tonumber(ARGV[3])
+local member = ARGV[4]
 
 redis.call('ZREMRANGEBYSCORE', key, 0, now - window)
 local count = tonumber(redis.call('ZCARD', key))
 
 if count < limit then
-    redis.call('ZADD', key, now, now)
+    redis.call('ZADD', key, now, member)
     redis.call('PEXPIRE', key, window)
-    return 1
+    return {1, 0}
 end
-return 0
+
+-- Место освободится, когда самый старый запрос выпадет из окна.
+local oldest = tonumber(redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')[2])
+return {0, oldest + window - now}
 ```
 
 ## Почему Lua
@@ -49,6 +56,8 @@ return 0
 `redis.NewScript` использует `EVALSHA`: скрипт грузится в Redis один раз, дальше передаётся только его хэш.
 
 `PEXPIRE` на каждом успешном запросе — защита от утечки памяти: ключи неактивных клиентов исчезают сами через время окна.
+
+Член множества уникален не просто так: элементы sorted set не повторяются, и при члене, равном времени, два запроса в одну миллисекунду слились бы в одну запись — лимит протекал бы ровно под нагрузкой.
 
 ## Sliding window против альтернатив
 
@@ -65,8 +74,7 @@ Sliding window выбран потому, что лимит должен быт�
 
 ## Известные проблемы
 
-* **Коллизия членов sorted set — запросы теряются.** `ZADD key now now` использует timestamp и как score, и как **член**. `ZADD` с уже существующим членом только обновляет score, не увеличивая размер set. Значит два запроса, попавшие в одну миллисекунду, учтутся как один, и `ZCARD` будет меньше реального числа — лимит протекает ровно там, где он нужнее всего, под нагрузкой. Починка: делать член уникальным, например `now .. ":" .. uuid` (передавать из Go) или через `redis.call('INCR', key..':seq')`.
-* **`Allow` не различает причины отказа.** Возвращается `(false, err)` при ошибке Redis и `(false, nil)` при исчерпании лимита, из-за чего middleware не может отличить перегрузку от недоступности инфраструктуры без проверки `err != nil`. Работает, но осмысленнее было бы вернуть остаток лимита и время сброса.
-* **Нет заголовков ответа.** Клиенту не сообщается ни лимит, ни остаток, ни момент сброса. Стандартная практика — `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `Retry-After` при `429`; данные для этого уже есть внутри скрипта.
+* **Нет `X-RateLimit-Limit` и `X-RateLimit-Remaining`.** При `429` клиент получает `Retry-After`, но лимит и остаток до отказа не сообщаются; остаток (`limit - count`) скрипт мог бы вернуть третьим числом.
 * **Один лимит на все эндпоинты.** `/health` и `/auth/login` расходуют общий бюджет. Для `/auth/login` осмысленнее отдельный, более жёсткий лимит по логину, а не по IP — это защита от подбора пароля.
-* **Redis — единая точка отказа.** Middleware при ошибке возвращает `500`, то есть падение Redis обрушивает публичный API целиком.
+* **Пока Redis лежит, лимита по IP нет.** Middleware при ошибке пропускает запрос (fail-open): падение Redis не кладёт публичный API, но и не ограничивает его. Логин при этом всё равно защищён семафором на bcrypt в auth.
+* **Время берётся из Go, а не из Redis.** Расхождение часов между инстансами gateway сдвигает окно: запросы с «отстающего» инстанса выпадают из окна раньше. В пределах NTP это миллисекунды; `redis.call('TIME')` убрал бы зависимость от часов приложения.

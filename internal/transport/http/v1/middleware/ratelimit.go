@@ -2,8 +2,10 @@ package middleware
 
 import (
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
+	"strconv"
 
 	"github.com/YagorX/shop-gateway/internal/ratelimit"
 )
@@ -43,15 +45,19 @@ func RateLimit(logger *slog.Logger, limiter *ratelimit.Limiter) Middleware {
 				return
 			}
 
-			allowed, err := limiter.Allow(r.Context(), host)
+			allowed, retryAfter, err := limiter.Allow(r.Context(), host)
 			if err != nil {
-				log.Error("failed to check rate limit", slog.String("error", err.Error()))
-				writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+				// Fail-open: без Redis теряем лимит по IP, но не весь сайт.
+				// Перегрузку auth при этом всё равно сдерживает семафор на bcrypt.
+				log.Error("rate limiter unavailable, request allowed", slog.String("error", err.Error()))
+				next.ServeHTTP(w, r)
 				return
 			}
 
 			if !allowed {
 				log.Warn("rate limit exceeded", slog.String("remote_addr", ip))
+				// Заголовок ставится до writeError: после WriteHeader он уже не уйдёт клиенту.
+				w.Header().Set("Retry-After", strconv.Itoa(max(1, int(math.Ceil(retryAfter.Seconds())))))
 				writeError(w, http.StatusTooManyRequests, "rate_limit_exceeded", "too many requests")
 				return
 			}

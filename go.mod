@@ -5,11 +5,14 @@ go 1.25.0
 replace github.com/YagorX/shop-contracts => ../shop-contracts
 
 require (
+	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/ilyakaznacheev/cleanenv v1.5.0
 	github.com/redis/go-redis/v9 v9.18.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.67.0
 	go.opentelemetry.io/otel/sdk v1.42.0
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260209200024-4cfbd4190f57
 	google.golang.org/grpc v1.79.3
+	google.golang.org/protobuf v1.36.11
 )
 
 require (
@@ -26,6 +29,7 @@ require (
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
+	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.41.0 // indirect
 	go.opentelemetry.io/otel/metric v1.42.0 // indirect
@@ -37,8 +41,6 @@ require (
 	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260209200024-4cfbd4190f57 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260209200024-4cfbd4190f57 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
 )
 
 require (
