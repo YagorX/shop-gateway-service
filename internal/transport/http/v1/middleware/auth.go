@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/YagorX/shop-gateway/internal/transport/http/v1/contracts"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -104,11 +106,20 @@ func Auth(logger *slog.Logger, authService contracts.AuthService) Middleware {
 
 			userUUID, err := authService.ValidateToken(r.Context(), token, appID)
 			if err != nil {
-				log.Warn("token validation failed",
-					slog.Int64("app_id", appID),
-					slog.String("error", err.Error()),
-				)
-				writeError(w, http.StatusUnauthorized, "unauthorized", "token validation failed")
+				switch status.Code(err) {
+				case codes.Unauthenticated, codes.NotFound:
+					log.Warn("token rejected", slog.Int64("app_id", appID), slog.String("error", err.Error()))
+					writeError(w, http.StatusUnauthorized, "unauthorized", "token validation failed")
+				case codes.Unavailable:
+					log.Error("auth unavailable", slog.String("error", err.Error()))
+					writeError(w, http.StatusServiceUnavailable, "service_unavailable", "auth service unavailable")
+				case codes.DeadlineExceeded:
+					log.Error("auth timeout", slog.String("error", err.Error()))
+					writeError(w, http.StatusGatewayTimeout, "upstream_timeout", "auth service timeout")
+				default:
+					log.Error("token validation failed", slog.String("error", err.Error()))
+					writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+				}
 				return
 			}
 
