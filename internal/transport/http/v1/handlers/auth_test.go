@@ -198,3 +198,56 @@ func TestAuthHandler_Register_Overload(t *testing.T) {
 		t.Fatalf("Retry-After = %q, want %q", got, "1")
 	}
 }
+
+// Так auth отвечает на логин, заблокированный после серии неудач: ResourceExhausted, как и перегрузка,
+// но с ErrorInfo.Reason = LOGIN_LOCKED и паузой до разблокировки.
+func lockedAuthError(t *testing.T, delay time.Duration) error {
+	t.Helper()
+
+	st, err := status.New(codes.ResourceExhausted, "too many failed login attempts, retry later").WithDetails(
+		&errdetails.RetryInfo{RetryDelay: durationpb.New(delay)},
+		&errdetails.ErrorInfo{Reason: "LOGIN_LOCKED", Domain: "auth.shop"},
+	)
+	if err != nil {
+		t.Fatalf("build status: %v", err)
+	}
+
+	return fmt.Errorf("client.grpc.auth.Login: %w", st.Err())
+}
+
+// Блокировку логина клиент должен отличать от перегрузки: ждать минуты, а не секунду, и показать человеку причину.
+func TestAuthHandler_Login_LockedIsNotOverload(t *testing.T) {
+	rec := doLogin(t, &stubAuthService{loginErr: lockedAuthError(t, 5*time.Minute)})
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", rec.Code)
+	}
+	if got := rec.Header().Get("Retry-After"); got != "300" {
+		t.Fatalf("Retry-After = %q, want 300", got)
+	}
+
+	e, _ := decodeBody(t, rec.Body)["error"].(map[string]any)
+	if code, _ := e["code"].(string); code != "login_locked" {
+		t.Fatalf("error.code = %q, want login_locked", code)
+	}
+	if msg, _ := e["message"].(string); msg != "too many failed login attempts, retry later" {
+		t.Fatalf("error.message = %q, want the message auth meant for the client", msg)
+	}
+}
+
+// Перегрузка с ErrorInfo от нового auth по-прежнему too_many_requests.
+func TestAuthHandler_Login_OverloadWithReason(t *testing.T) {
+	st, err := status.New(codes.ResourceExhausted, "server is busy, retry later").WithDetails(
+		&errdetails.RetryInfo{RetryDelay: durationpb.New(time.Second)},
+		&errdetails.ErrorInfo{Reason: "SERVER_OVERLOADED", Domain: "auth.shop"},
+	)
+	if err != nil {
+		t.Fatalf("build status: %v", err)
+	}
+
+	rec := doLogin(t, &stubAuthService{loginErr: fmt.Errorf("client.grpc.auth.Login: %w", st.Err())})
+
+	if got := errorCode(t, rec); got != "too_many_requests" {
+		t.Fatalf("error.code = %q, want too_many_requests", got)
+	}
+}

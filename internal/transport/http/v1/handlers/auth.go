@@ -15,6 +15,10 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// ErrorInfo.Reason, с которым auth отвечает на заблокированный после серии неудач логин.
+// Задаётся в shop-auth/internal/transport/grpc/v1/server.go (reasonLoginLocked).
+const authReasonLoginLocked = "LOGIN_LOCKED"
+
 type AuthHandler struct {
 	service contracts.AuthService
 }
@@ -324,7 +328,11 @@ func writeAuthError(w http.ResponseWriter, err error) string {
 		return "401"
 	case codes.ResourceExhausted:
 		w.Header().Set("Retry-After", strconv.Itoa(retryAfterSeconds(err)))
-		writeError(w, http.StatusTooManyRequests, "too_many_requests", "server is busy, please try again later")
+		if errorReason(err) == authReasonLoginLocked {
+			writeError(w, http.StatusTooManyRequests, "login_locked", upstreamMessage(err))
+		} else {
+			writeError(w, http.StatusTooManyRequests, "too_many_requests", "server is busy, please try again later")
+		}
 		return "429"
 	case codes.Unavailable:
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "service unavailable")
@@ -361,4 +369,16 @@ func upstreamMessage(err error) string {
 		return se.GRPCStatus().Message()
 	}
 	return "internal error"
+}
+
+// Причина отказа из ErrorInfo: по ней одинаковый ResourceExhausted становится разными error.code.
+func errorReason(err error) string {
+	if st, ok := status.FromError(err); ok {
+		for _, d := range st.Details() {
+			if info, ok := d.(*errdetails.ErrorInfo); ok {
+				return info.GetReason()
+			}
+		}
+	}
+	return ""
 }
