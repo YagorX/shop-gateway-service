@@ -735,8 +735,14 @@ components:
     TooManyRequests:
       description: |
         Request rejected to protect the service; retry after the number of seconds in `Retry-After`.
-        `error.code` tells the cause: `too_many_requests` — auth is at its password hashing capacity,
-        `rate_limit_exceeded` — the client IP exceeded the gateway rate limit.
+        `error.code` tells the cause:
+        - `too_many_requests` — auth is at its password hashing capacity; retry in about a second;
+        - `rate_limit_exceeded` — the client IP exceeded the gateway rate limit;
+        - `login_locked` (`/auth/login` only) — too many failed attempts for this login; `Retry-After` is the time
+          until it is unlocked, minutes rather than seconds. Failed attempts for unknown logins are counted the same way,
+          so this code does not reveal whether an account exists;
+        - `too_many_login_failures` (`/auth/login` only) — too many failed logins from the client IP; successful
+          logins are not counted, so many users behind one NAT address are not blocked by each other's sign-ins.
       headers:
         Retry-After:
           $ref: '#/components/headers/RetryAfter'
@@ -991,6 +997,7 @@ components:
       properties:
         email_or_name:
           type: string
+          maxLength: 255
           example: demo
         password:
           type: string

@@ -124,7 +124,9 @@ shop-gateway/
 { "error": { "code": "unauthorized", "message": "token validation failed" } }
 ```
 
-Стабильные значения `error.code`: `bad_request`, `method_not_allowed`, `invalid_pagination`, `invalid_product_id`, `product_not_found`, `already_exists`, `not_found`, `unauthorized`, `unauthenticated`, `rate_limit_exceeded`, `idempotency_key_conflict`, `idempotency_unavailable`, `internal_error`.
+Стабильные значения `error.code`: `bad_request`, `method_not_allowed`, `invalid_pagination`, `invalid_product_id`, `product_not_found`, `already_exists`, `not_found`, `unauthorized`, `unauthenticated`, `rate_limit_exceeded`, `too_many_requests`, `login_locked`, `too_many_login_failures`, `service_unavailable`, `upstream_timeout`, `idempotency_key_conflict`, `idempotency_unavailable`, `internal_error`.
+
+Все `429` несут `Retry-After`. Причины различаются кодом: `rate_limit_exceeded` — общий лимит по IP; `too_many_requests` — auth упёрся в семафор bcrypt; `login_locked` — заблокирован логин после серии неудач (auth сообщает это через `ErrorInfo.Reason = LOGIN_LOCKED`); `too_many_login_failures` — слишком много неудачных входов с IP клиента.
 
 ---
 
@@ -147,6 +149,8 @@ flowchart TD
     SVC --> ADP["adapter → gRPC client"]
     ADP --> BE["внутренний сервис"]
 ```
+
+`/auth/login` дополнительно обёрнут в `LoginFailureLimit`: IP, с которого пришло `login_failure_limit.limit` неудачных входов (`401`) за окно, получает `429 too_many_login_failures` ещё до похода в auth. Успешные входы не считаются — офис за одним NAT-адресом утренними входами блокировку не набирает. Перебор паролей к одному аккаунту ловит отдельный лимит по логину внутри auth. Подробнее — [`middleware`](internal/transport/http/v1/middleware/README.md#loginfailurelimit).
 
 Порядок неслучаен. Rate limiting стоит **до** авторизации, иначе перебор токенов был бы бесплатным для атакующего. Идемпотентность — до хендлера, чтобы повтор не доходил до внутренних сервисов. `Recovery` — последним в цепочке обёрток, то есть ближайшим к хендлеру.
 
@@ -198,6 +202,7 @@ sequenceDiagram
 | `cart_grpc` / `cart_tls` | то же | mTLS до `cart-service` |
 | `redis` | `addr`, `password`, `db`, `timeout` | Rate limit и идемпотентность |
 | `rate_limit` | `limit` (100), `window` (1m) | Лимит на IP |
+| `login_failure_limit` | `limit` (50), `window` (15m) | Неудачные входы (`401` на `/auth/login`) с одного IP; окно от первой неудачи |
 | `retry` | `max_retries` (6), `initial_interval` (2s), `max_interval` (32s) | Подключение к gRPC при старте |
 | `swagger` | `ui_path`, `redoc_path`, `spec_path` | Пути к статике |
 | `template_path` | | HTML-шаблон `/status` |
@@ -297,7 +302,7 @@ go test ./internal/...
 
 ## Известные проблемы
 
-1. **Rate limiter считает по `r.RemoteAddr`.** За балансировщиком или CDN это будет один и тот же адрес для всех клиентов — общий лимит на всех. `X-Forwarded-For` не разбирается.
+1. **Оба лимитера считают по `r.RemoteAddr`.** За балансировщиком или CDN это будет один и тот же адрес для всех клиентов — общий лимит и общая блокировка входа на всех. `X-Forwarded-For` не разбирается. IPv6 считается по полному адресу, а не по префиксу `/64`: атакующий меняет адрес внутри своей подсети и обходит лимит неудач.
 2. **Деньги проходят через float.** Каталог отдаёт цену как `double` (`price = price_cents / 100.0`), адаптер конвертирует обратно: `int64(math.Round(p.GetPrice() * 100))` в [`internal/adapters/catalog_grpc/repository.go`](internal/adapters/catalog_grpc/repository.go). Округление спасает на обычных значениях, но тип в контракте противоречит целочисленному `price_cents`, которым пользуются все остальные сервисы и Kafka-события. Правильно — `int64` копеек в самом proto.
 3. **Readiness открывает новое соединение на каждый вызов.** Каждый из трёх чекеров в [`internal/transport/grpc/v1/handlers`](internal/transport/grpc/v1/handlers) делает `grpc.DialContext(..., WithBlock())` и закрывает соединение. При healthcheck раз в 10 секунд это три TCP+TLS-рукопожатия каждые 10 секунд, а `/ready` может отвалиться из-за установки соединения при полностью живом рабочем клиенте. Нужно вызывать `Health/Check` на уже существующих `conn` из `App`.
 4. **Retry игнорирует отмену контекста.** [`internal/app/retry.go`](internal/app/retry.go) ждёт через `time.Sleep`, поэтому `ctx.Done()` проверяется только между попытками. При `max_retries: 6` и `max_interval: 32s` старт может держаться около минуты, не реагируя на SIGTERM.
@@ -309,3 +314,5 @@ go test ./internal/...
 10. **RPC-стиль в REST API.** `/cart/items/update`, `/cart/items/remove`, `/cart/clear` выбиваются из остальной схемы — ожидались бы `PATCH /cart/items/{product_id}`, `DELETE /cart/items/{product_id}`, `DELETE /cart`.
 11. **`slog.Error` вместо `service.logger`** в отдельных ветках `gateway.go` — пишет в глобальный логгер, минуя сконфигурированный.
 12. **Незакоммиченные изменения** на момент аудита: 8 файлов, включая +934/−232 строки в `openapi/gateway.v1.yaml`.
+13. **Клиент Redis без таймаутов и с повторами по умолчанию.** В [`internal/app/app.go`](internal/app/app.go) `redis.Options` задаёт только адрес, пароль и базу; `redis.timeout` из конфига не используется. Когда Redis лежит, fail-open лимитеров срабатывает только после повторов go-redis — около 2 секунд на **каждый** запрос (на `/auth/login` дважды), а при недоступном по сети хосте — до `DialTimeout` 5 с на каждую из попыток. Нужны `DialTimeout`/`ReadTimeout` из `redis.timeout` и `MaxRetries` 0–1 для лимитеров.
+14. **Общий лимит 100 запросов в минуту на IP мешает офисам за NAT.** Сто человек за одним адресом делят один бюджет на все маршруты. Защищённые маршруты правильнее считать по `user_uuid` (после `Auth`), а по IP — только анонимные и с запасом.

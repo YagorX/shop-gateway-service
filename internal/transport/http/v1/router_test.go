@@ -1,13 +1,22 @@
 package v1
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/alicebob/miniredis/v2"
+	redis "github.com/redis/go-redis/v9"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	"github.com/YagorX/shop-gateway/internal/ratelimit"
+	"github.com/YagorX/shop-gateway/internal/transport/http/v1/contracts"
 	"github.com/YagorX/shop-gateway/internal/transport/http/v1/handlers"
 )
 
@@ -109,5 +118,43 @@ func TestNewRouter_SkipsStatusRouteWhenTemplateMissing(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 when status route is not configured, got %d", rec.Code)
+	}
+}
+
+// Неверный пароль — как его отдаёт gRPC-клиент gateway.
+type unauthenticatedAuthService struct{ contracts.AuthService }
+
+func (unauthenticatedAuthService) Login(context.Context, string, string, int64, string) (string, string, error) {
+	return "", "", status.Error(codes.Unauthenticated, "invalid email or password")
+}
+
+// /auth/login подключён через лимит неудач по IP: после порога запрос до auth не доходит.
+func TestNewRouter_LoginGoesThroughFailureLimit(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+
+	router := NewRouter(RouterDeps{
+		AuthService:         unauthenticatedAuthService{},
+		LoginFailureLimiter: ratelimit.NewFailureLimiter(client, 1, time.Minute, "ratelimit:login-failures"),
+	})
+
+	login := func() int {
+		body := strings.NewReader(`{"email_or_name":"user","password":"wrong","app_id":1,"device_id":"d1"}`)
+		req := httptest.NewRequest(http.MethodPost, "/auth/login", body)
+		req.RemoteAddr = "203.0.113.5:51234"
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		return rec.Code
+	}
+
+	if code := login(); code != http.StatusUnauthorized {
+		t.Fatalf("first login: status = %d, want 401", code)
+	}
+	if code := login(); code != http.StatusTooManyRequests {
+		t.Fatalf("second login: status = %d, want 429 from the IP failure limit", code)
 	}
 }

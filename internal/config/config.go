@@ -29,7 +29,9 @@ type Config struct {
 	TemplatePath string          `yaml:"template_path" env-default:""`
 	Redis        RedisConfig     `yaml:"redis"`
 	RateLimit    RateLimitConfig `yaml:"rate_limit"`
-	Retry        RetryConfig     `yaml:"retry"`
+	// Неудачные входы (401 от /auth/login) с одного IP; успешные не считаются.
+	LoginFailureLimit RateLimitConfig `yaml:"login_failure_limit"`
+	Retry             RetryConfig     `yaml:"retry"`
 }
 
 type RetryConfig struct {
@@ -164,6 +166,12 @@ func (c *Config) Validate() error {
 	}
 	if c.RateLimit.Window <= 0 {
 		return fmt.Errorf("rate_limit.window must be > 0")
+	}
+	if c.LoginFailureLimit.Limit <= 0 {
+		return fmt.Errorf("login_failure_limit.limit must be > 0")
+	}
+	if c.LoginFailureLimit.Window <= 0 {
+		return fmt.Errorf("login_failure_limit.window must be > 0")
 	}
 
 	if c.AuthTLS.Enabled {

@@ -23,7 +23,9 @@ type RouterDeps struct {
 	SwaggerSpecDir     string
 	StatusHandler      *handlers.StatusHandler
 	Limiter            *ratelimit.Limiter
-	RedisClient        *redis.Client
+	// Только для /auth/login; nil — без лимита неудач по IP.
+	LoginFailureLimiter *ratelimit.FailureLimiter
+	RedisClient         *redis.Client
 }
 
 func NewRouter(deps RouterDeps) http.Handler {
@@ -85,7 +87,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 	)
 
 	mux.HandleFunc("/auth/register", authHandler.Register)
-	mux.HandleFunc("/auth/login", authHandler.Login)
+	mux.Handle("/auth/login", middleware.LoginFailureLimit(logger, deps.LoginFailureLimiter)(http.HandlerFunc(authHandler.Login)))
 	mux.HandleFunc("/auth/validate", authHandler.Validate)
 	mux.HandleFunc("/auth/refresh", authHandler.Refresh)
 	mux.HandleFunc("/auth/logout", authHandler.Logout)

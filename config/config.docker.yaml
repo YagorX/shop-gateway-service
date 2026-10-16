@@ -72,6 +72,10 @@ rate_limit:
   limit: 100
   window: 1m
 
+login_failure_limit:
+  limit: 50                 # неудачных входов (401) с одного IP за window; успешные не считаются — офис за NAT их не набирает
+  window: 15m               # окно от первой неудачи; после порога вход с IP закрыт до конца окна
+
 retry:
   max_retries: 6
   initial_interval: 2s

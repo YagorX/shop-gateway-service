@@ -61,6 +61,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	})
 
 	limiter := ratelimit.NewLimiter(redisClient, cfg.RateLimit.Limit, cfg.RateLimit.Window)
+	loginFailureLimiter := ratelimit.NewFailureLimiter(redisClient, cfg.LoginFailureLimit.Limit, cfg.LoginFailureLimit.Window, "ratelimit:login-failures")
 
 	shutdownTracing, err := observability.InitTracing(
 		ctx,
@@ -214,14 +215,15 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 				},
 			},
 		},
-		ProductService: gatewaySrv,
-		AuthService:    gatewaySrv,
-		CartService:    gatewaySrv,
-		SwaggerHandler: swaggerHandler,
-		SwaggerSpecDir: swaggerSpecDir,
-		StatusHandler:  statusHandler,
-		Limiter:        limiter,
-		RedisClient:    redisClient,
+		ProductService:      gatewaySrv,
+		AuthService:         gatewaySrv,
+		CartService:         gatewaySrv,
+		SwaggerHandler:      swaggerHandler,
+		SwaggerSpecDir:      swaggerSpecDir,
+		StatusHandler:       statusHandler,
+		Limiter:             limiter,
+		LoginFailureLimiter: loginFailureLimiter,
+		RedisClient:         redisClient,
 	})
 
 	otelHandler := otelhttp.NewHandler(httpRouter, "gateway.http")
